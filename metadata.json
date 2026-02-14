@@ -1,0 +1,7 @@
+{
+  "name": "Vende Libros",
+  "description": "Una plataforma P2P moderna para la venta de libros electrónicos basada en una matriz 3x3 con un sistema de compensación inteligente.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

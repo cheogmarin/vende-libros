@@ -1,0 +1,622 @@
+
+import React, { useState, useEffect } from 'react';
+import { User, UserLevel, Book, PaymentRecord } from '../types';
+import { COLORS, ICONS, getActiveBooks, getBeneficiaryForLevel, VENEZUELAN_BANKS, checkDuplicatePayment, SECURITY_ERROR_MESSAGE } from '../constants';
+import { select, hierarchy, tree, linkVertical } from 'd3';
+
+interface DashboardProps {
+  user: User;
+  onUpdate: (updates: Partial<User>) => void;
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'MATRIX' | 'PAYMENTS' | 'CATALOG' | 'SETTINGS'>('OVERVIEW');
+  const [customBooks, setCustomBooks] = useState<Book[]>([]);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [beneficiary, setBeneficiary] = useState<Partial<User> | null>(null);
+  
+  // Simulated P2P Payments State
+  const [payments, setPayments] = useState<PaymentRecord[]>([
+    {
+      id: 'pay_001',
+      senderId: 'Juan Delgado',
+      receiverId: user.username,
+      amount: 2.00,
+      status: 'PENDING',
+      timestamp: Date.now() - 3600000,
+      levelTarget: UserLevel.SEMILLA
+    },
+    {
+      id: 'pay_002',
+      senderId: 'María López',
+      receiverId: user.username,
+      amount: 2.00,
+      status: 'CONFIRMED',
+      timestamp: Date.now() - 86400000,
+      levelTarget: UserLevel.SEMILLA
+    }
+  ]);
+
+  // Settings form state
+  const [editPayment, setEditPayment] = useState({
+    bankName: user.paymentInfo?.bankName || '',
+    accountNumber: user.paymentInfo?.accountNumber || '',
+    phone: user.paymentInfo?.phone || '',
+    idNumber: user.paymentInfo?.idNumber || '',
+  });
+  const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SAVING' | 'SUCCESS'>('IDLE');
+
+  useEffect(() => {
+    setBooks(getActiveBooks());
+  }, []);
+
+  const setBooks = (b: Book[]) => setCustomBooks(b);
+
+  const handleConfirmPayment = (paymentId: string) => {
+    setPayments(prev => prev.map(p => p.id === paymentId ? { ...p, status: 'CONFIRMED' } : p));
+    // Simular incremento de ganancias si es el receptor
+    const payment = payments.find(p => p.id === paymentId);
+    if (payment) {
+      onUpdate({ earnings: user.earnings + payment.amount });
+    }
+  };
+
+  const handleDisputePayment = (paymentId: string) => {
+    const reason = window.prompt("Indique brevemente el motivo de la disputa (ej: Comprobante falso, monto incompleto):");
+    if (reason !== null) {
+      setPayments(prev => prev.map(p => p.id === paymentId ? { ...p, status: 'DISPUTED' } : p));
+      alert("Disputa iniciada. El sistema revisará la transacción y se pondrá en contacto con ambas partes.");
+    }
+  };
+
+  // Plan level details
+  const levelDetails = {
+    [UserLevel.GUEST]: { levelNum: 0, name: 'Invitado', cost: 0, nextCost: 2, goal: 'Semilla', description: 'Compra tu primer paquete de eBooks por $2 para activar tu red y empezar a recibir pagos.' },
+    [UserLevel.SEMILLA]: { levelNum: 1, name: 'Semilla', cost: 2, nextCost: 6, goal: 'Crecimiento', description: 'Vende a 3 personas para ganar $6. Luego desbloquea el Paquete Doble.' },
+    [UserLevel.CRECIMIENTO]: { levelNum: 2, name: 'Crecimiento', cost: 6, nextCost: 20, goal: 'Cosecha', description: 'Recibe 9 pagos de $6 de tu segundo nivel ($54 totales). Luego desbloquea el Paquete Triple.' },
+    [UserLevel.COSECHA]: { levelNum: 3, name: 'Cosecha', cost: 20, nextCost: 0, goal: 'Finalizado', description: 'Recibe 27 pagos de $20 de tu tercer nivel ($540 totales). ¡Felicidades, completaste la matriz!' },
+  };
+
+  const currentDetails = levelDetails[user.level];
+
+  const prepareUpgrade = () => {
+    const nextLevelNum = currentDetails.levelNum + 1;
+    const ben = getBeneficiaryForLevel(user, nextLevelNum);
+    setBeneficiary(ben);
+    setShowUpgradeModal(true);
+  };
+
+  const confirmUpgrade = () => {
+    let nextLevel = UserLevel.GUEST;
+    if (user.level === UserLevel.GUEST) nextLevel = UserLevel.SEMILLA;
+    else if (user.level === UserLevel.SEMILLA) nextLevel = UserLevel.CRECIMIENTO;
+    else if (user.level === UserLevel.CRECIMIENTO) nextLevel = UserLevel.COSECHA;
+
+    onUpdate({ 
+      level: nextLevel, 
+      earnings: user.earnings + (user.level === UserLevel.SEMILLA ? 6 : user.level === UserLevel.CRECIMIENTO ? 54 : 0) 
+    });
+    setShowUpgradeModal(false);
+  };
+
+  const handleFileUpload = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        const newBooks = [...customBooks];
+        newBooks[index] = { ...newBooks[index], cover: base64String, isCustom: true };
+        setCustomBooks(newBooks);
+        localStorage.setItem('vende_libros_custom_catalog', JSON.stringify(newBooks));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleBookTextUpdate = (index: number, field: 'title' | 'author', value: string) => {
+    const newBooks = [...customBooks];
+    newBooks[index] = { ...newBooks[index], [field]: value, isCustom: true };
+    setCustomBooks(newBooks);
+    localStorage.setItem('vende_libros_custom_catalog', JSON.stringify(newBooks));
+  };
+
+  const resetCatalog = () => {
+    localStorage.removeItem('vende_libros_custom_catalog');
+    setCustomBooks(getActiveBooks());
+  };
+
+  const handleUpdateSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    const isDuplicate = checkDuplicatePayment(editPayment, user.id);
+    if (isDuplicate) {
+      alert(SECURITY_ERROR_MESSAGE);
+      return;
+    }
+    setSaveStatus('SAVING');
+    setTimeout(() => {
+      onUpdate({ paymentInfo: editPayment });
+      setSaveStatus('SUCCESS');
+      setTimeout(() => setSaveStatus('IDLE'), 3000);
+    }, 800);
+  };
+
+  const handleShareApp = async () => {
+    const shareUrl = `https://vendelibros.app/#/auth?ref=${user.username}`;
+    const shareData = {
+      title: 'Vende Libros - ¡Únete a mi red!',
+      text: `¡Hola! Únete a mi red en Vende Libros y empieza a ganar comisiones P2P del 100%. Regístrate usando mi código de anfitrión: ${user.username}`,
+      url: shareUrl,
+    };
+    if (navigator.share) {
+      try { await navigator.share(shareData); } catch (err) { console.error('Error sharing:', err); }
+    } else {
+      navigator.clipboard.writeText(shareUrl);
+      alert('Link de invitación copiado.');
+    }
+  };
+
+  const pendingPayments = payments.filter(p => p.status === 'PENDING' && p.receiverId === user.username);
+  const disputedPayments = payments.filter(p => p.status === 'DISPUTED');
+
+  return (
+    <div className="max-w-7xl mx-auto py-8 px-4 relative">
+      {/* Active Disputes Alert */}
+      {disputedPayments.length > 0 && (
+        <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl flex items-center justify-between shadow-sm animate-pulse">
+          <div className="flex items-center gap-3 text-red-800">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            <div>
+              <p className="font-bold text-sm uppercase tracking-wider">Transacciones en Disputa</p>
+              <p className="text-xs">Tienes {disputedPayments.length} reporte(s) bajo investigación.</p>
+            </div>
+          </div>
+          <button onClick={() => setActiveTab('PAYMENTS')} className="text-xs font-bold bg-red-100 text-red-700 px-3 py-1 rounded-lg hover:bg-red-200">Ver Detalles</button>
+        </div>
+      )}
+
+      {/* Header Stat Cards */}
+      <div className="grid md:grid-cols-4 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-1">Nivel Actual</p>
+          <p className="text-2xl font-bold" style={{ color: COLORS.deepBlue }}>{currentDetails.name}</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-1">Ganancias Reales</p>
+          <p className="text-2xl font-bold text-emerald-600">${user.earnings}.00</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-1">Red Directa</p>
+          <div className="flex items-end justify-between">
+            <p className="text-2xl font-bold text-gray-900">3 / 3</p>
+            <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded">Completo</span>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-1">Progreso Matriz</p>
+          <div className="w-full bg-gray-100 rounded-full h-2 mt-4 overflow-hidden">
+            <div 
+              className="bg-emerald-500 h-full transition-all duration-1000" 
+              style={{ width: `${user.matrixProgress || 45}%` }}
+            ></div>
+          </div>
+          <p className="text-right text-xs mt-2 text-gray-500 font-bold">{user.matrixProgress || 45}%</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-8">
+        {/* Main Section */}
+        <div className="flex-grow">
+          <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
+            <div className="flex border-b overflow-x-auto whitespace-nowrap">
+              {['OVERVIEW', 'MATRIX', 'PAYMENTS', 'CATALOG', 'SETTINGS'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab as any)}
+                  className={`flex-1 min-w-[120px] py-4 font-bold text-sm tracking-wide transition-colors ${
+                    activeTab === tab ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-500' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {tab === 'OVERVIEW' ? 'PANEL' : tab === 'MATRIX' ? 'MI RED' : tab === 'PAYMENTS' ? 'PAGOS' : tab === 'CATALOG' ? 'CATÁLOGO' : 'CONFIGURACIÓN'}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-8">
+              {activeTab === 'OVERVIEW' && (
+                <div className="space-y-8">
+                  <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg">
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                      <div>
+                        <h3 className="text-xl font-bold mb-2">Próximo Paso: {currentDetails.goal}</h3>
+                        <p className="opacity-90 max-w-lg">{currentDetails.description}</p>
+                      </div>
+                      {currentDetails.nextCost > 0 && (
+                        <button
+                          onClick={prepareUpgrade}
+                          className="bg-white text-emerald-700 font-bold px-8 py-3 rounded-xl shadow-lg hover:scale-105 transition transform"
+                        >
+                          Adquirir por ${currentDetails.nextCost}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-8">
+                    <div>
+                      <h4 className="text-lg font-bold mb-4" style={{ color: COLORS.deepBlue }}>Verificar Pagos P2P</h4>
+                      <div className="space-y-4">
+                        {pendingPayments.length > 0 ? pendingPayments.map(p => (
+                          <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
+                                <span className="text-xs font-bold text-emerald-700">{p.senderId.substring(0,2).toUpperCase()}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold">{p.senderId}</p>
+                                <p className="text-xs text-gray-500">Monto: ${p.amount.toFixed(2)}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => handleConfirmPayment(p.id)}
+                                title="Confirmar Recepción"
+                                className="bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 shadow-sm transition"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                              </button>
+                              <button 
+                                onClick={() => handleDisputePayment(p.id)}
+                                title="Reportar Disputa"
+                                className="bg-red-500 text-white p-2 rounded-lg hover:bg-red-600 shadow-sm transition"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="text-center py-8 bg-gray-50 rounded-2xl border border-gray-100">
+                            <p className="text-xs text-gray-400 italic">No tienes pagos pendientes por verificar hoy.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-bold mb-4" style={{ color: COLORS.deepBlue }}>Mis Libros Activos</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        {customBooks.slice(0, 4).map((book) => (
+                          <div key={book.id} className="bg-gray-50 p-3 rounded-xl flex items-center gap-3 border border-gray-100 overflow-hidden group hover:bg-white hover:shadow-md transition">
+                            <img src={book.cover} className="w-10 h-14 object-cover rounded shadow-sm" alt="" />
+                            <div className="truncate">
+                              <p className="text-[10px] font-bold truncate group-hover:text-emerald-700">{book.title}</p>
+                              <p className="text-[8px] text-gray-500">Nivel 1</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'MATRIX' && (
+                <div className="flex flex-col items-center">
+                  <h3 className="text-xl font-bold mb-4">Visualización de tu Red 3x3</h3>
+                  <MatrixGraph />
+                  <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-lg">
+                    <div className="text-center p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                      <p className="text-xs text-emerald-600 font-bold uppercase">Nivel 1</p>
+                      <p className="text-lg font-black text-emerald-900">3</p>
+                    </div>
+                    <div className="text-center p-3 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="text-xs text-blue-600 font-bold uppercase">Nivel 2</p>
+                      <p className="text-lg font-black text-blue-900">9</p>
+                    </div>
+                    <div className="text-center p-3 bg-purple-50 rounded-xl border border-purple-100">
+                      <p className="text-xs text-purple-600 font-bold uppercase">Nivel 3</p>
+                      <p className="text-lg font-black text-purple-900">27</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'PAYMENTS' && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xl font-bold">Historial y Disputas</h3>
+                    <div className="flex gap-2">
+                       <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">● Pagado</span>
+                       <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded">● Disputa</span>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b text-gray-500 uppercase text-[10px] font-bold">
+                          <th className="py-3 px-2">ID Transacción</th>
+                          <th className="py-3 px-2">Usuario</th>
+                          <th className="py-3 px-2">Monto</th>
+                          <th className="py-3 px-2">Fecha</th>
+                          <th className="py-3 px-2">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payments.map(p => (
+                          <tr key={p.id} className={`border-b hover:bg-gray-50 transition ${p.status === 'DISPUTED' ? 'bg-red-50/50' : ''}`}>
+                            <td className="py-4 px-2 font-mono text-[10px]">{p.id}</td>
+                            <td className="py-4 px-2">{p.senderId}</td>
+                            <td className="py-4 px-2 font-bold">${p.amount.toFixed(2)}</td>
+                            <td className="py-4 px-2 text-[10px] text-gray-400">{new Date(p.timestamp).toLocaleDateString()}</td>
+                            <td className="py-4 px-2">
+                              {p.status === 'CONFIRMED' && <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">Confirmado</span>}
+                              {p.status === 'PENDING' && <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold">Pendiente</span>}
+                              {p.status === 'DISPUTED' && (
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-bold">En Disputa</span>
+                                  <button title="Ayuda" className="text-red-400 hover:text-red-600"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg></button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'CATALOG' && (
+                <div className="space-y-8">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-xl font-bold">Administrar Títulos</h3>
+                      <p className="text-sm text-gray-500">Sube tus propias imágenes y edita los títulos.</p>
+                    </div>
+                    <button onClick={resetCatalog} className="text-red-600 text-sm font-bold hover:underline">Resetear</button>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-6">
+                    {customBooks.map((book, idx) => (
+                      <div key={book.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-200 flex gap-4">
+                        <div className="relative group w-24 h-36 flex-shrink-0">
+                          <img src={book.cover} className="w-full h-full object-cover rounded-lg shadow-md" alt="" />
+                          <label className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer rounded-lg text-white text-xs font-bold text-center p-2">
+                            CAMBIAR PORTADA
+                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(idx, e)} />
+                          </label>
+                        </div>
+                        <div className="flex-grow space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase">Título del Libro</label>
+                            <input 
+                              type="text" 
+                              value={book.title} 
+                              onChange={(e) => handleBookTextUpdate(idx, 'title', e.target.value)}
+                              className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm focus:ring-emerald-500 focus:border-emerald-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase">Autor</label>
+                            <input 
+                              type="text" 
+                              value={book.author} 
+                              onChange={(e) => handleBookTextUpdate(idx, 'author', e.target.value)}
+                              className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm focus:ring-emerald-500 focus:border-emerald-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'SETTINGS' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-xl font-bold">Datos de Cobro</h3>
+                    <p className="text-sm text-gray-500">Corrige cualquier error en tu información de pago.</p>
+                  </div>
+
+                  <form onSubmit={handleUpdateSettings} className="space-y-6 bg-gray-50 p-6 rounded-2xl border border-gray-200">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div className="col-span-full md:col-span-1">
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Banco / Método de Pago</label>
+                        <select
+                          required
+                          value={editPayment.bankName}
+                          onChange={(e) => setEditPayment({...editPayment, bankName: e.target.value})}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all appearance-none cursor-pointer"
+                        >
+                          {VENEZUELAN_BANKS.map((bank) => (
+                            <option key={bank} value={bank}>{bank}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div className="col-span-full md:col-span-1">
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Cédula / RIF</label>
+                        <input
+                          type="text"
+                          required
+                          value={editPayment.idNumber}
+                          onChange={(e) => setEditPayment({...editPayment, idNumber: e.target.value})}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all"
+                        />
+                      </div>
+
+                      <div className="col-span-full md:col-span-1">
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Teléfono (Pago Móvil)</label>
+                        <input
+                          type="tel"
+                          required
+                          value={editPayment.phone}
+                          onChange={(e) => setEditPayment({...editPayment, phone: e.target.value})}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all"
+                        />
+                      </div>
+
+                      <div className="col-span-full md:col-span-1">
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Número de Cuenta o Email</label>
+                        <input
+                          type="text"
+                          required
+                          value={editPayment.accountNumber}
+                          onChange={(e) => setEditPayment({...editPayment, accountNumber: e.target.value})}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <button
+                        type="submit"
+                        disabled={saveStatus === 'SAVING'}
+                        className={`px-8 py-3 rounded-xl font-bold shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center gap-2 ${
+                          saveStatus === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        }`}
+                      >
+                        {saveStatus === 'SAVING' ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            Guardando...
+                          </span>
+                        ) : saveStatus === 'SUCCESS' ? (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                            ¡Datos Actualizados!
+                          </>
+                        ) : (
+                          'Guardar Cambios'
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Info */}
+        <div className="lg:w-80 space-y-6">
+          <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100">
+            <h4 className="font-bold mb-4" style={{ color: COLORS.deepBlue }}>Link de Referencia</h4>
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 break-all text-xs font-mono mb-4 text-emerald-700">
+              https://vendelibros.app/#/auth?ref={user.username}
+            </div>
+            <div className="space-y-3">
+              <button 
+                onClick={handleShareApp}
+                className="w-full bg-emerald-600 text-white text-sm font-bold py-3 rounded-xl hover:bg-emerald-700 transition shadow-md flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                Compartir App
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100">
+            <h4 className="font-bold mb-4" style={{ color: COLORS.deepBlue }}>Mi Patrocinador</h4>
+            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+              <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 font-bold">
+                {user.sponsorId?.[0].toUpperCase() || 'V'}
+              </div>
+              <div className="truncate">
+                <p className="text-xs font-bold truncate text-gray-800">{user.sponsorId || 'josegmarin2012@gmail.com'}</p>
+                <p className="text-[10px] text-gray-500 uppercase">Patrocinador Directo</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100">
+            <h4 className="font-bold text-emerald-800 mb-2">💡 Seguridad P2P</h4>
+            <p className="text-xs text-emerald-700 leading-relaxed">
+              "Nunca confirmes un pago sin haber revisado tu banco. Una vez confirmado, el sistema desbloqueará el contenido automáticamente."
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Upgrade P2P Modal */}
+      {showUpgradeModal && beneficiary && (
+        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-fade-in">
+            <div className="bg-emerald-600 p-6 text-white text-center">
+              <h3 className="text-xl font-bold">Instrucciones de Pago Directo</h3>
+              <p className="text-xs opacity-90">Estás adquiriendo el Paquete de Nivel {currentDetails.levelNum + 1}</p>
+            </div>
+            
+            <div className="p-8">
+              <div className="text-center mb-8">
+                <p className="text-gray-500 text-sm mb-2">Debes enviar exactamente</p>
+                <p className="text-4xl font-black text-emerald-600">${currentDetails.nextCost}.00</p>
+              </div>
+
+              <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 space-y-4 mb-8">
+                <div className="flex justify-between items-center border-b border-gray-200 pb-3">
+                  <span className="text-xs font-bold text-gray-400 uppercase">Beneficiario</span>
+                  <span className="text-sm font-bold text-gray-800">{beneficiary.username}</span>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase mb-2">Datos de Pago</p>
+                  <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs text-gray-600 leading-relaxed">
+                    <strong>Banco:</strong> {beneficiary.paymentInfo?.bankName}<br/>
+                    <strong>Cuenta/Email:</strong> {beneficiary.paymentInfo?.accountNumber}<br/>
+                    <strong>Teléfono:</strong> {beneficiary.paymentInfo?.phone}<br/>
+                    <strong>RIF/CI:</strong> {beneficiary.paymentInfo?.idNumber}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  onClick={confirmUpgrade}
+                  className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition transform active:scale-95"
+                >
+                  Ya realicé el pago, Confirmar
+                </button>
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="w-full bg-gray-100 text-gray-600 font-bold py-3 rounded-xl hover:bg-gray-200 transition"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MatrixGraph: React.FC = () => {
+  const svgRef = React.useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const width = 400;
+    const height = 300;
+    const svg = select(svgRef.current);
+    svg.selectAll('*').remove();
+    const data = {
+      name: 'Tú',
+      children: [
+        { name: 'N1.A', children: [{name: 'N2.1'}, {name: 'N2.2'}, {name: 'N2.3'}] },
+        { name: 'N1.B', children: [{name: 'N2.4'}, {name: 'N2.5'}, {name: 'N2.6'}] },
+        { name: 'N1.C', children: [{name: 'N2.7'}, {name: 'N2.8'}, {name: 'N2.9'}] },
+      ]
+    };
+    const root = hierarchy(data);
+    const treeLayout = tree<any>().size([width - 40, height - 80]);
+    treeLayout(root);
+    const g = svg.append('g').attr('transform', 'translate(20, 40)');
+    g.selectAll('.link').data(root.links()).enter().append('path').attr('class', 'link').attr('d', linkVertical().x((d: any) => d.x).y((d: any) => d.y) as any).attr('fill', 'none').attr('stroke', '#e2e8f0').attr('stroke-width', 2);
+    const nodes = g.selectAll('.node').data(root.descendants()).enter().append('g').attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+    nodes.append('circle').attr('r', 10).attr('fill', (d: any) => d.depth === 0 ? COLORS.emeraldGreen : d.depth === 1 ? COLORS.deepBlue : '#cbd5e1').attr('stroke', '#fff').attr('stroke-width', 2);
+    nodes.append('text').attr('dy', (d: any) => d.depth === 0 ? -15 : 20).attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', 'bold').style('fill', '#475569').text((d: any) => d.data.name);
+  }, []);
+  return <svg ref={svgRef} width="400" height="300" className="max-w-full bg-gray-50/50 rounded-2xl"></svg>;
+};
+
+export default Dashboard;
