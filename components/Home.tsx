@@ -30,9 +30,6 @@ const Home: React.FC<HomeProps> = ({ isAuthenticated }) => {
           <h1 className="text-4xl md:text-7xl font-extrabold text-white drop-shadow-2xl mb-6 leading-tight tracking-tight">
             Gana $570+ vendiendo eBooks
           </h1>
-          <p className="text-xl text-gray-100 max-w-2xl mx-auto drop-shadow font-medium">
-            Un sistema P2P descentralizado donde el 100% de la comisión es para ti.
-          </p>
         </div>
       </section>
 
@@ -126,7 +123,7 @@ const Home: React.FC<HomeProps> = ({ isAuthenticated }) => {
               </div>
             </div>
 
-            <button 
+            <button
               onClick={() => setShowGiftModal(true)}
               className="w-full p-4 bg-emerald-600 rounded-2xl text-white text-center font-bold shadow-lg hover:bg-emerald-700 transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3 group"
             >
@@ -258,14 +255,14 @@ const Home: React.FC<HomeProps> = ({ isAuthenticated }) => {
                   <p className="text-xs opacity-80">Gratis al activar tu cuenta</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setShowGiftModal(false)}
                 className="bg-white/20 hover:bg-white/30 p-2 rounded-full transition"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            
+
             <div className="p-8">
               <h4 className="text-2xl font-bold mb-6 text-gray-800 border-l-4 border-emerald-500 pl-3">📚 eBooks de Estrategia</h4>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
@@ -302,13 +299,19 @@ const Home: React.FC<HomeProps> = ({ isAuthenticated }) => {
                 </div>
               </div>
 
-              <div className="mt-10 flex justify-center">
+              <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
                 <Link
                   to="/auth"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-12 rounded-2xl shadow-xl transition transform hover:scale-105"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-12 rounded-2xl shadow-xl transition transform hover:scale-105 w-full sm:w-auto text-center"
                 >
                   ¡Quiero mis regalos, registrarme ya!
                 </Link>
+                <button
+                  onClick={() => setShowGiftModal(false)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-4 px-12 rounded-2xl transition transform hover:scale-105 w-full sm:w-auto"
+                >
+                  Cerrar
+                </button>
               </div>
             </div>
           </div>
