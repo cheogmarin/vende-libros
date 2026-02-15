@@ -22,6 +22,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
+  // Network Stats State
+  const [networkStats, setNetworkStats] = useState({
+    level1: 0,
+    level2: 0,
+    level3: 0
+  });
+
   // Settings form state
   const [editPayment, setEditPayment] = useState({
     bankName: user.paymentInfo?.bankName || '',
@@ -33,8 +40,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
 
   useEffect(() => {
     fetchPayments();
+    fetchNetworkStats();
     setCustomBooks(getActiveBooks());
   }, []);
+
+  const fetchNetworkStats = async () => {
+    // 1. Get Level 1 (Directs)
+    const { data: level1 } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('parent_id', user.id);
+
+    const count1 = level1?.length || 0;
+    const l1Ids = level1?.map(u => u.id) || [];
+
+    // 2. Get Level 2
+    let count2 = 0;
+    let l2Ids: string[] = [];
+    if (l1Ids.length > 0) {
+      const { data: level2 } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('parent_id', l1Ids);
+      count2 = level2?.length || 0;
+      l2Ids = level2?.map(u => u.id) || [];
+    }
+
+    // 3. Get Level 3
+    let count3 = 0;
+    if (l2Ids.length > 0) {
+      const { count } = await supabase
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .in('parent_id', l2Ids);
+      count3 = count || 0;
+    }
+
+    setNetworkStats({ level1: count1, level2: count2, level3: count3 });
+  };
 
   const fetchPayments = async () => {
     const { data, error } = await supabase
@@ -49,8 +92,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
     if (data) {
       const formatted: PaymentRecord[] = data.map(p => ({
         id: p.id,
-        senderId: p.sender.username,
-        receiverId: p.receiver.username,
+        senderId: p.sender?.username || 'Usuario', // Safe access
+        receiverId: p.receiver?.username || 'Usuario', // Safe access
         amount: p.amount,
         status: p.status as 'PENDING' | 'CONFIRMED' | 'DISPUTED',
         receiptUrl: p.receipt_url,
@@ -272,8 +315,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <p className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-1">Red Directa</p>
           <div className="flex items-end justify-between">
-            <p className="text-2xl font-bold text-gray-900">3 / 3</p>
-            <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded">Completo</span>
+            <p className="text-2xl font-bold text-gray-900">{networkStats.level1} / 3</p>
+            {networkStats.level1 >= 3 && <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded">Completo</span>}
           </div>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
@@ -389,15 +432,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                   <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-lg">
                     <div className="text-center p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                       <p className="text-xs text-emerald-600 font-bold uppercase">Nivel 1</p>
-                      <p className="text-lg font-black text-emerald-900">3</p>
+                      <p className="text-lg font-black text-emerald-900">{networkStats.level1}</p>
                     </div>
                     <div className="text-center p-3 bg-blue-50 rounded-xl border border-blue-100">
                       <p className="text-xs text-blue-600 font-bold uppercase">Nivel 2</p>
-                      <p className="text-lg font-black text-blue-900">9</p>
+                      <p className="text-lg font-black text-blue-900">{networkStats.level2}</p>
                     </div>
                     <div className="text-center p-3 bg-purple-50 rounded-xl border border-purple-100">
                       <p className="text-xs text-purple-600 font-bold uppercase">Nivel 3</p>
-                      <p className="text-lg font-black text-purple-900">27</p>
+                      <p className="text-lg font-black text-purple-900">{networkStats.level3}</p>
                     </div>
                   </div>
                 </div>

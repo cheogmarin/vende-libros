@@ -26,7 +26,13 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
   const navigate = useNavigate();
   const isRootUser = user.email === ROOT_USER_EMAIL;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Si ya tiene datos de pago (por un update anterior), navegamos al dashboard
+  if (user.paymentInfo) {
+    navigate('/dashboard');
+    return null;
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validar datos de perfil si faltan
@@ -49,7 +55,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
     }
 
     // Guardar TODO de una vez
-    onComplete({
+    await onComplete({
       username: missingData.username,
       sponsorId: isRootUser ? null : missingData.sponsorId,
       paymentInfo
