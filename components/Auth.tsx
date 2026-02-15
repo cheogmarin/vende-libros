@@ -134,9 +134,22 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         name: "Usuario Google",
         email: "usuario.google@gmail.com"
       };
-      setGoogleUserData(mockGoogleData);
+      const isRootUser = mockGoogleData.email === ROOT_USER_EMAIL;
+
+      const newUser: User = {
+        id: 'mock-google-id-' + Date.now(),
+        username: mockGoogleData.name,
+        email: mockGoogleData.email,
+        sponsorId: isRootUser ? null : getInitialSponsor(),
+        level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
+        paymentInfo: null,
+        earnings: 0,
+        matrixProgress: 0,
+      };
+
       setIsGoogleLoading(false);
-      setShowGoogleSponsorStep(true);
+      onLogin(newUser);
+      navigate('/setup-profile');
     }, 1500);
   };
 
@@ -210,32 +223,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     }
   };
 
-  const handleFinalizeGoogleRegistration = async () => {
-    if (!googleUserData) return;
-
-    const isRootUser = googleUserData.email === ROOT_USER_EMAIL;
-    const finalSponsor = isRootUser ? null : formData.sponsorCode;
-
-    if (!isRootUser && !finalSponsor) {
-      alert('Por favor ingresa el código de anfitrión.');
-      return;
-    }
-
-    // Mock successful Google Auth and Profile Creation
-    const newUser: User = {
-      id: 'mock-google-id-' + Date.now(),
-      username: googleUserData.name, // Will be editable in ProfileSetup if missing
-      email: googleUserData.email,
-      sponsorId: finalSponsor,
-      level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
-      paymentInfo: null,
-      earnings: 0,
-      matrixProgress: 0,
-    };
-
-    onLogin(newUser);
-    navigate('/setup-profile');
-  };
 
   const handleFinalizeRegistration = () => {
     if (pendingUser) {
@@ -266,53 +253,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         </div>
       )}
 
-      {isGoogleLoading && (
-        <div className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-8 text-center animate-bounce-short">
-            <img className="h-10 w-10 mx-auto mb-4" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
-            <h3 className="font-bold text-lg mb-2">Conectando con Google</h3>
-            <p className="text-sm text-gray-500">Espera un momento...</p>
-          </div>
-        </div>
-      )}
 
-      {showGoogleSponsorStep && googleUserData && (
-        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-fade-in">
-            <div className="bg-emerald-600 p-6 text-white text-center">
-              <h3 className="text-xl font-bold">¡Casi listo, {googleUserData.name}!</h3>
-              <p className="text-xs opacity-90">Ingresa tu código de anfitrión para unirte</p>
-            </div>
-            <div className="p-8 space-y-6">
-              <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center gap-3">
-                <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(googleUserData.name)}&background=10b981&color=fff`} className="w-10 h-10 rounded-full" alt="User" />
-                <div className="text-sm">
-                  <p className="font-bold text-emerald-900">{googleUserData.email}</p>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-widest">Código de Anfitrión *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.sponsorCode}
-                  onChange={(e) => setFormData({ ...formData, sponsorCode: e.target.value })}
-                  className={getInputClass(errors.sponsorCode, formData.sponsorCode)}
-                  placeholder="Email de quien te invitó"
-                />
-                {errors.sponsorCode && <p className="text-[10px] text-red-500 mt-2 font-bold">{errors.sponsorCode}</p>}
-              </div>
-              <button
-                onClick={handleFinalizeGoogleRegistration}
-                disabled={!!errors.sponsorCode || !formData.sponsorCode}
-                className="w-full py-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-lg disabled:bg-gray-200 disabled:text-gray-400"
-              >
-                Completar Registro
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Email Simulation Modal with 3 paragraphs and scroll */}
       {simulatedEmail && (

@@ -25,88 +25,38 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
 
   const navigate = useNavigate();
   const isRootUser = user.email === ROOT_USER_EMAIL;
-  const needsProfileCompletion = !user.username || (!user.sponsorId && !isRootUser);
-
-  const handleProfileCompletion = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!missingData.username || (!isRootUser && !missingData.sponsorId)) {
-      alert('Por favor completa todos los campos.');
-      return;
-    }
-    // Update basic profile info first
-    onComplete({
-      username: missingData.username,
-      sponsorId: isRootUser ? null : missingData.sponsorId
-    });
-    // Visual feedback handled by re-render as needsProfileCompletion will become false
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validar datos de perfil si faltan
+    if (!missingData.username || (!isRootUser && !missingData.sponsorId)) {
+      alert('Por favor completa los datos de perfil (Usuario y Anfitrión).');
+      return;
+    }
+
+    // Validar banco
     if (!paymentInfo.bankName) {
       alert('Por favor selecciona un banco o método de pago.');
       return;
     }
 
-    // Validación de seguridad P2P: No duplicados en la red
+    // Validación de seguridad P2P: No duplicados
     const isDuplicate = checkDuplicatePayment(paymentInfo, user.id);
     if (isDuplicate) {
       alert(SECURITY_ERROR_MESSAGE);
       return;
     }
 
-    onComplete({ paymentInfo });
+    // Guardar TODO de una vez
+    onComplete({
+      username: missingData.username,
+      sponsorId: isRootUser ? null : missingData.sponsorId,
+      paymentInfo
+    });
+
     navigate('/dashboard');
   };
-
-  if (needsProfileCompletion) {
-    return (
-      <div className="max-w-xl mx-auto py-12 px-4">
-        <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-gray-100">
-          <div className="text-center mb-8">
-            <div className="inline-block bg-emerald-100 p-3 rounded-full mb-4">
-              <span className="text-2xl">👋</span>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900">¡Casi listo!</h2>
-            <p className="text-gray-500 mt-2">Completa tu perfil para unirte a la red.</p>
-          </div>
-
-          <form onSubmit={handleProfileCompletion} className="space-y-6">
-            <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2 ml-1">Elige un nombre de usuario</label>
-              <input
-                type="text"
-                required
-                value={missingData.username}
-                onChange={(e) => setMissingData({ ...missingData, username: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
-                placeholder="Ej. emprendedor2024"
-              />
-            </div>
-            {!isRootUser && (
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase mb-2 ml-1">Código de Anfitrión (Email)</label>
-                <input
-                  type="text"
-                  required
-                  value={missingData.sponsorId}
-                  onChange={(e) => setMissingData({ ...missingData, sponsorId: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
-                  placeholder="Email de quien te invitó"
-                />
-              </div>
-            )}
-            <button
-              type="submit"
-              className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition transform hover:scale-[1.02]"
-            >
-              Continuar
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
@@ -118,67 +68,102 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
             </svg>
           </div>
           <div>
-            <h2 className="text-3xl font-bold" style={{ color: COLORS.deepBlue }}>Configura tu cobro</h2>
-            <p className="text-gray-500 text-sm">Paso final para activar tu oficina virtual</p>
+            <h2 className="text-3xl font-bold" style={{ color: COLORS.deepBlue }}>Activa tu cuenta</h2>
+            <p className="text-gray-500 text-sm">Completa tus datos para empezar a ganar</p>
           </div>
         </div>
 
         <p className="text-gray-600 mb-8 leading-relaxed">
-          Para que otros usuarios puedan pagarte directamente, necesitamos saber a qué banco y cuenta deben enviarte el dinero.
-          <strong className="block mt-2 text-emerald-700">Recuerda: El dinero nunca pasa por nosotros, va directo a ti.</strong>
+          Para que otros usuarios puedan pagarte directamente, necesitamos configurar tu perfil y cuenta bancaria.
+          <strong className="block mt-2 text-emerald-700">El dinero siempre va directo a ti, sin intermediarios.</strong>
         </p>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="col-span-full md:col-span-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Banco / Método de Pago</label>
-              <select
-                required
-                value={paymentInfo.bankName}
-                onChange={(e) => setPaymentInfo({ ...paymentInfo, bankName: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all appearance-none cursor-pointer"
-              >
-                <option value="">Selecciona una opción...</option>
-                {VENEZUELAN_BANKS.map((bank) => (
-                  <option key={bank} value={bank}>{bank}</option>
-                ))}
-              </select>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Sección de Perfil */}
+          <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 space-y-4">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Información de Usuario</h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-2">Nombre de Usuario</label>
+                <input
+                  type="text"
+                  required
+                  value={missingData.username}
+                  onChange={(e) => setMissingData({ ...missingData, username: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder="Ej. juan_perez"
+                />
+              </div>
+              {!isRootUser && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-2">Email de tu Anfitrión</label>
+                  <input
+                    type="text"
+                    required
+                    value={missingData.sponsorId}
+                    onChange={(e) => setMissingData({ ...missingData, sponsorId: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white"
+                    placeholder="Email de quien te invitó"
+                  />
+                </div>
+              )}
             </div>
+          </div>
 
-            <div className="col-span-full md:col-span-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Cédula / RIF</label>
-              <input
-                type="text"
-                required
-                value={paymentInfo.idNumber}
-                onChange={(e) => setPaymentInfo({ ...paymentInfo, idNumber: e.target.value })}
-                placeholder="V-12345678"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
-              />
-            </div>
+          {/* Sección de Cobro */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Datos para recibir pagos</h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="col-span-full">
+                <label className="block text-xs font-bold text-gray-600 mb-2">Banco / Método de Pago</label>
+                <select
+                  required
+                  value={paymentInfo.bankName}
+                  onChange={(e) => setPaymentInfo({ ...paymentInfo, bankName: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white appearance-none cursor-pointer"
+                >
+                  <option value="">Selecciona una opción...</option>
+                  {VENEZUELAN_BANKS.map((bank) => (
+                    <option key={bank} value={bank}>{bank}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="col-span-full md:col-span-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Teléfono (Pago Móvil)</label>
-              <input
-                type="tel"
-                required
-                value={paymentInfo.phone}
-                onChange={(e) => setPaymentInfo({ ...paymentInfo, phone: e.target.value })}
-                placeholder="04121234567"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
-              />
-            </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-2">Cédula / RIF</label>
+                <input
+                  type="text"
+                  required
+                  value={paymentInfo.idNumber}
+                  onChange={(e) => setPaymentInfo({ ...paymentInfo, idNumber: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder="V-12345678"
+                />
+              </div>
 
-            <div className="col-span-full md:col-span-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Número de Cuenta o Email</label>
-              <input
-                type="text"
-                required
-                value={paymentInfo.accountNumber}
-                onChange={(e) => setPaymentInfo({ ...paymentInfo, accountNumber: e.target.value })}
-                placeholder="20 dígitos o email para Zelle"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
-              />
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-2">Teléfono (Pagomóvil)</label>
+                <input
+                  type="tel"
+                  required
+                  value={paymentInfo.phone}
+                  onChange={(e) => setPaymentInfo({ ...paymentInfo, phone: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder="04121234567"
+                />
+              </div>
+
+              <div className="col-span-full">
+                <label className="block text-xs font-bold text-gray-600 mb-2">Número de Cuenta o Email (Zelle)</label>
+                <input
+                  type="text"
+                  required
+                  value={paymentInfo.accountNumber}
+                  onChange={(e) => setPaymentInfo({ ...paymentInfo, accountNumber: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder="20 dígitos o email"
+                />
+              </div>
             </div>
           </div>
 
@@ -191,7 +176,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
             <div>
               <p className="text-sm text-amber-800 font-bold mb-1">Verifica tus datos</p>
               <p className="text-xs text-amber-700 leading-relaxed">
-                Es fundamental que estos datos sean correctos. Los otros miembros los usarán para enviarte tus ganancias de $2, $6 y $20. Datos erróneos podrían retrasar tu activación.
+                Tus pagos de $2, $6 y $20 llegarán directamente a estos datos. Asegúrate de que sean exactos.
               </p>
             </div>
           </div>
@@ -200,7 +185,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
             type="submit"
             className="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-emerald-700 transition transform hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2"
           >
-            <span>Activar mi Perfil de Vendedor</span>
+            <span>Activar mi Oficina Virtual</span>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
             </svg>
