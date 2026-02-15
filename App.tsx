@@ -8,55 +8,103 @@ import Library from './components/Library';
 import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
 import { User, UserLevel } from './types';
+import { supabase } from './supabase';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Mock initial load
   useEffect(() => {
-    const savedUser = localStorage.getItem('vende_libros_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-      setIsAuthenticated(true);
-    }
+    // Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        fetchProfile(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        fetchProfile(session.user.id);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const updateGlobalUserList = (updatedUser: User) => {
-    const allUsersStr = localStorage.getItem('vende_libros_all_users') || '[]';
-    let allUsers: User[] = JSON.parse(allUsersStr);
-    
-    const index = allUsers.findIndex(u => u.id === updatedUser.id);
-    if (index !== -1) {
-      allUsers[index] = updatedUser;
-    } else {
-      allUsers.push(updatedUser);
+  const fetchProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (data) {
+      const formattedUser: User = {
+        id: data.id,
+        username: data.username,
+        email: data.email,
+        sponsorId: data.sponsor_id,
+        level: data.level as UserLevel,
+        paymentInfo: data.payment_info,
+        earnings: data.earnings,
+        matrixProgress: data.matrix_progress,
+      };
+      setUser(formattedUser);
+      setIsAuthenticated(true);
+    } else if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching profile:', error);
     }
-    
-    localStorage.setItem('vende_libros_all_users', JSON.stringify(allUsers));
+    setLoading(false);
   };
 
   const handleLogin = (userData: User) => {
     setUser(userData);
     setIsAuthenticated(true);
-    localStorage.setItem('vende_libros_user', JSON.stringify(userData));
-    updateGlobalUserList(userData);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setIsAuthenticated(false);
-    localStorage.removeItem('vende_libros_user');
   };
 
-  const updateUser = (updates: Partial<User>) => {
+  const updateUser = async (updates: Partial<User>) => {
     if (user) {
-      const updated = { ...user, ...updates };
-      setUser(updated);
-      localStorage.setItem('vende_libros_user', JSON.stringify(updated));
-      updateGlobalUserList(updated);
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          username: updates.username,
+          sponsor_id: updates.sponsorId,
+          level: updates.level,
+          payment_info: updates.paymentInfo,
+          earnings: updates.earnings,
+          matrix_progress: updates.matrixProgress,
+        })
+        .eq('id', user.id);
+
+      if (!error) {
+        setUser({ ...user, ...updates });
+      } else {
+        console.error('Error updating profile:', error);
+      }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -65,19 +113,19 @@ const App: React.FC = () => {
         <main className="flex-grow">
           <Routes>
             <Route path="/" element={<Home isAuthenticated={isAuthenticated} />} />
-            <Route 
-              path="/dashboard" 
+            <Route
+              path="/dashboard"
               element={
                 isAuthenticated && user ? (
                   user.paymentInfo ? <Dashboard user={user} onUpdate={updateUser} /> : <Navigate to="/setup-profile" />
                 ) : <Navigate to="/auth" />
-              } 
+              }
             />
             <Route path="/library" element={<Library isAuthenticated={isAuthenticated} userLevel={user?.level || UserLevel.GUEST} />} />
             <Route path="/auth" element={<Auth onLogin={handleLogin} />} />
-            <Route 
-              path="/setup-profile" 
-              element={isAuthenticated && user ? <ProfileSetup user={user} onComplete={updateUser} /> : <Navigate to="/auth" />} 
+            <Route
+              path="/setup-profile"
+              element={isAuthenticated && user ? <ProfileSetup user={user} onComplete={updateUser} /> : <Navigate to="/auth" />}
             />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

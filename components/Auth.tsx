@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { User, UserLevel } from '../types';
 import { COLORS, ROOT_USER_EMAIL } from '../constants';
 import { GoogleGenAI } from "@google/genai";
+import { findSpilloverPlacement } from '../src/utils/network';
+import { supabase } from '../supabase';
 
 interface AuthProps {
   onLogin: (user: User) => void;
@@ -16,8 +18,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [showGoogleSponsorStep, setShowGoogleSponsorStep] = useState(false);
   const [simulatedEmail, setSimulatedEmail] = useState<{ subject: string; body: string } | null>(null);
   const [pendingUser, setPendingUser] = useState<User | null>(null);
-  const [googleUserData, setGoogleUserData] = useState<{name: string, email: string} | null>(null);
-  
+  const [googleUserData, setGoogleUserData] = useState<{ name: string, email: string } | null>(null);
+
   const navigate = useNavigate();
 
   // Robust sponsor code extraction
@@ -87,9 +89,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setErrors(newErrors);
   }, [formData, isRegistering, showGoogleSponsorStep]);
 
-  const isFormValid = isRegistering 
-    ? (!errors.username && !errors.email && !errors.password && !errors.confirmPassword && !errors.sponsorCode && 
-       formData.username && formData.email && formData.password && formData.confirmPassword && formData.sponsorCode)
+  const isFormValid = isRegistering
+    ? (!errors.username && !errors.email && !errors.password && !errors.confirmPassword && !errors.sponsorCode &&
+      formData.username && formData.email && formData.password && formData.confirmPassword && formData.sponsorCode)
     : (formData.email && formData.password && !errors.email);
 
   const generateWelcomeEmail = async (username: string, sponsorId: string, email: string) => {
@@ -109,7 +111,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           responseMimeType: "application/json"
         }
       });
-      
+
       const content = JSON.parse(response.text || `{"subject": "¡Bienvenido a Vende Libros!", "body": "Estamos felices de tenerte aquí.\\n\\nTu negocio P2P está listo para generar el 100% de comisiones directamente a tu cuenta.\\n\\nEntra ahora y configura tus datos de cobro."}`);
       setSimulatedEmail(content);
     } catch (error) {
@@ -140,43 +142,79 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     e.preventDefault();
     if (!isFormValid) return;
 
-    const mockUser: User = {
-      id: 'usr_' + Math.random().toString(36).substr(2, 9),
-      username: formData.username || formData.email.split('@')[0],
-      email: formData.email,
-      sponsorId: formData.sponsorCode,
-      level: UserLevel.GUEST,
-      paymentInfo: null,
-      earnings: 0,
-      matrixProgress: 0,
-    };
-
     if (isRegistering) {
-      setPendingUser(mockUser);
-      await generateWelcomeEmail(mockUser.username, mockUser.sponsorId || ROOT_USER_EMAIL, mockUser.email);
+      const { data, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (error) {
+        alert('Error al registrar: ' + error.message);
+        return;
+      }
+
+      if (data.user) {
+        // Find placement (Spillover)
+        const parentId = await findSpilloverPlacement(formData.sponsorCode);
+
+        // Create profile in Supabase
+        const { error: profileError } = await supabase.from('profiles').insert([
+          {
+            id: data.user.id,
+            username: formData.username,
+            email: formData.email,
+            sponsor_id: formData.sponsorCode,
+            parent_id: parentId, // Set the actual parent in the matrix
+            level: UserLevel.GUEST,
+            earnings: 0,
+            matrix_progress: 0,
+          },
+        ]);
+
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+        }
+
+        const newUser: User = {
+          id: data.user.id,
+          username: formData.username,
+          email: formData.email,
+          sponsorId: formData.sponsorCode,
+          level: UserLevel.GUEST,
+          paymentInfo: null,
+          earnings: 0,
+          matrixProgress: 0,
+        };
+
+        setPendingUser(newUser);
+        await generateWelcomeEmail(newUser.username, newUser.sponsorId || ROOT_USER_EMAIL, newUser.email);
+      }
     } else {
-      onLogin(mockUser);
-      navigate('/dashboard');
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (error) {
+        alert('Error al ingresar: ' + error.message);
+        return;
+      }
+
+      if (data.user) {
+        // App.tsx will handle the session and fetch profile
+        navigate('/dashboard');
+      }
     }
   };
 
   const handleFinalizeGoogleRegistration = async () => {
-    if (!formData.sponsorCode) return;
-    
-    const mockUser: User = {
-      id: 'usr_ggl_' + Math.random().toString(36).substr(2, 9),
-      username: googleUserData?.name || 'Usuario Google',
-      email: googleUserData?.email || '',
-      sponsorId: formData.sponsorCode,
-      level: UserLevel.GUEST,
-      paymentInfo: null,
-      earnings: 0,
-      matrixProgress: 0,
-    };
-    
-    setPendingUser(mockUser);
-    await generateWelcomeEmail(mockUser.username, mockUser.sponsorId, mockUser.email);
-    setShowGoogleSponsorStep(false);
+    if (!formData.sponsorCode || !googleUserData) return;
+
+    // In a real app, you'd use supabase.auth.signInWithOAuth({ provider: 'google' })
+    // For this demonstration, we'll continue with the mock and create a profile if needed
+    // or just assume we're using Supabase Google Auth
+
+    alert('Funcionalidad de Google Auth con Supabase requiere configuración en el Dashboard (URL de redirección).');
   };
 
   const handleFinalizeRegistration = () => {
@@ -195,7 +233,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      
+
       {/* Background Decor */}
       <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-100 rounded-full -translate-x-1/2 -translate-y-1/2 opacity-20 blur-3xl"></div>
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-100 rounded-full translate-x-1/3 translate-y-1/3 opacity-20 blur-3xl"></div>
@@ -238,7 +276,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                   type="text"
                   required
                   value={formData.sponsorCode}
-                  onChange={(e) => setFormData({...formData, sponsorCode: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, sponsorCode: e.target.value })}
                   className={getInputClass(errors.sponsorCode, formData.sponsorCode)}
                   placeholder="Email de quien te invitó"
                 />
@@ -271,7 +309,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 </div>
               </div>
             </div>
-            
+
             <div className="p-10">
               <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 mb-8 max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-emerald-200">
                 <p className="text-sm text-gray-500 mb-2"><strong>Asunto:</strong> {simulatedEmail.subject}</p>
@@ -300,9 +338,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-3xl shadow-2xl border border-gray-100 z-10">
         <div className="text-center">
           <div className="inline-block bg-emerald-100 p-3 rounded-2xl mb-4">
-             <span className="text-2xl font-bold italic" style={{ color: COLORS.deepBlue }}>
-                Vende<span style={{ color: COLORS.emeraldGreen }}>Libros</span>
-              </span>
+            <span className="text-2xl font-bold italic" style={{ color: COLORS.deepBlue }}>
+              Vende<span style={{ color: COLORS.emeraldGreen }}>Libros</span>
+            </span>
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">
             {isRegistering ? 'Únete a la Red' : 'Panel de Control'}
@@ -310,7 +348,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         </div>
 
         <div className="space-y-4">
-          <button 
+          <button
             onClick={handleGoogleAuth}
             className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-200 rounded-xl shadow-sm text-sm font-bold text-gray-700 bg-white hover:bg-gray-50 transition-all"
           >
@@ -333,7 +371,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                       type="text"
                       required
                       value={formData.sponsorCode}
-                      onChange={(e) => setFormData({...formData, sponsorCode: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, sponsorCode: e.target.value })}
                       className={getInputClass(errors.sponsorCode, formData.sponsorCode)}
                       placeholder="Email de quien te invitó"
                     />
@@ -344,7 +382,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                       type="text"
                       required
                       value={formData.username}
-                      onChange={(e) => setFormData({...formData, username: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                       className={getInputClass(errors.username, formData.username)}
                       placeholder="usuario_nuevo"
                     />
@@ -357,7 +395,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                   type="email"
                   required
                   value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className={getInputClass(errors.email, formData.email)}
                   placeholder="tu@correo.com"
                 />
@@ -368,7 +406,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                   type="password"
                   required
                   value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className={getInputClass(errors.password, formData.password)}
                   placeholder="••••••••"
                 />
@@ -380,7 +418,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     type="password"
                     required
                     value={formData.confirmPassword}
-                    onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     className={getInputClass(errors.confirmPassword, formData.confirmPassword)}
                     placeholder="••••••••"
                   />
@@ -391,15 +429,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             <button
               type="submit"
               disabled={!isFormValid || !isRegistering}
-              className={`w-full py-4 px-4 text-sm font-black rounded-xl text-white transition-all shadow-xl ${
-                isFormValid && isRegistering
-                ? 'bg-emerald-600 hover:bg-emerald-700 transform hover:scale-[1.02] active:scale-95' 
+              className={`w-full py-4 px-4 text-sm font-black rounded-xl text-white transition-all shadow-xl ${isFormValid && isRegistering
+                ? 'bg-emerald-600 hover:bg-emerald-700 transform hover:scale-[1.02] active:scale-95'
                 : 'bg-gray-200 cursor-not-allowed opacity-80'
-              }`}
+                }`}
             >
               {isRegistering ? 'ACTIVAR MI NEGOCIO' : 'ENTRAR AL PANEL'}
             </button>
-            
+
             {!isRegistering && (
               <p className="text-[10px] text-gray-400 text-center italic">
                 (Por favor, regístrate para activar tu nueva cuenta)

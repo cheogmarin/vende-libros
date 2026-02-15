@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserLevel, Book, PaymentRecord } from '../types';
-import { COLORS, ICONS, getActiveBooks, getBeneficiaryForLevel, VENEZUELAN_BANKS, checkDuplicatePayment, SECURITY_ERROR_MESSAGE } from '../constants';
+import { COLORS, ICONS, getActiveBooks, VENEZUELAN_BANKS, checkDuplicatePayment, SECURITY_ERROR_MESSAGE } from '../constants';
 import { select, hierarchy, tree, linkVertical } from 'd3';
+import { supabase } from '../supabase';
+import { getCommissionBeneficiary } from '../src/utils/network';
 
 interface DashboardProps {
   user: User;
@@ -14,28 +16,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
   const [customBooks, setCustomBooks] = useState<Book[]>([]);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [beneficiary, setBeneficiary] = useState<Partial<User> | null>(null);
-  
-  // Simulated P2P Payments State
-  const [payments, setPayments] = useState<PaymentRecord[]>([
-    {
-      id: 'pay_001',
-      senderId: 'Juan Delgado',
-      receiverId: user.username,
-      amount: 2.00,
-      status: 'PENDING',
-      timestamp: Date.now() - 3600000,
-      levelTarget: UserLevel.SEMILLA
-    },
-    {
-      id: 'pay_002',
-      senderId: 'María López',
-      receiverId: user.username,
-      amount: 2.00,
-      status: 'CONFIRMED',
-      timestamp: Date.now() - 86400000,
-      levelTarget: UserLevel.SEMILLA
-    }
-  ]);
+
+  // Real P2P Payments State
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Settings form state
   const [editPayment, setEditPayment] = useState({
@@ -47,25 +32,66 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
   const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SAVING' | 'SUCCESS'>('IDLE');
 
   useEffect(() => {
-    setBooks(getActiveBooks());
+    fetchPayments();
+    setCustomBooks(getActiveBooks());
   }, []);
 
-  const setBooks = (b: Book[]) => setCustomBooks(b);
+  const fetchPayments = async () => {
+    const { data, error } = await supabase
+      .from('payments')
+      .select(`
+        *,
+        sender:profiles!sender_id(username),
+        receiver:profiles!receiver_id(username)
+      `)
+      .order('created_at', { ascending: false });
 
-  const handleConfirmPayment = (paymentId: string) => {
-    setPayments(prev => prev.map(p => p.id === paymentId ? { ...p, status: 'CONFIRMED' } : p));
-    // Simular incremento de ganancias si es el receptor
-    const payment = payments.find(p => p.id === paymentId);
-    if (payment) {
-      onUpdate({ earnings: user.earnings + payment.amount });
+    if (data) {
+      const formatted: PaymentRecord[] = data.map(p => ({
+        id: p.id,
+        senderId: p.sender.username,
+        receiverId: p.receiver.username,
+        amount: p.amount,
+        status: p.status as 'PENDING' | 'CONFIRMED' | 'DISPUTED',
+        receiptUrl: p.receipt_url,
+        timestamp: new Date(p.created_at).getTime(),
+        levelTarget: p.level_target as UserLevel
+      }));
+      setPayments(formatted);
+    } else if (error) {
+      console.error('Error fetching payments:', error);
     }
   };
 
-  const handleDisputePayment = (paymentId: string) => {
+  const handleConfirmPayment = async (paymentId: string) => {
+    const { error } = await supabase
+      .from('payments')
+      .update({ status: 'CONFIRMED' })
+      .eq('id', paymentId);
+
+    if (!error) {
+      const payment = payments.find(p => p.id === paymentId);
+      if (payment) {
+        onUpdate({ earnings: user.earnings + payment.amount });
+        fetchPayments();
+      }
+    } else {
+      alert('Error al confirmar pago: ' + error.message);
+    }
+  };
+
+  const handleDisputePayment = async (paymentId: string) => {
     const reason = window.prompt("Indique brevemente el motivo de la disputa (ej: Comprobante falso, monto incompleto):");
     if (reason !== null) {
-      setPayments(prev => prev.map(p => p.id === paymentId ? { ...p, status: 'DISPUTED' } : p));
-      alert("Disputa iniciada. El sistema revisará la transacción y se pondrá en contacto con ambas partes.");
+      const { error } = await supabase
+        .from('payments')
+        .update({ status: 'DISPUTED' })
+        .eq('id', paymentId);
+
+      if (!error) {
+        alert("Disputa iniciada. El sistema revisará la transacción.");
+        fetchPayments();
+      }
     }
   };
 
@@ -79,24 +105,82 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
 
   const currentDetails = levelDetails[user.level];
 
-  const prepareUpgrade = () => {
+  const prepareUpgrade = async () => {
     const nextLevelNum = currentDetails.levelNum + 1;
-    const ben = getBeneficiaryForLevel(user, nextLevelNum);
-    setBeneficiary(ben);
-    setShowUpgradeModal(true);
+    // Use the new dynamic network logic to find the beneficiary
+    const beneficiaryId = await getCommissionBeneficiary(user.id, currentDetails.goal as UserLevel);
+
+    if (beneficiaryId) {
+      const { data: benProfile } = await supabase.from('profiles').select('*').eq('id', beneficiaryId).single();
+      if (benProfile) {
+        setBeneficiary(benProfile);
+        setShowUpgradeModal(true);
+      } else {
+        alert("Error: No se pudo encontrar los datos del beneficiario.");
+      }
+    } else {
+      // Should not happen if root is set up correctly, but fallback to root just in case
+      console.error("No beneficiary found via matrix logic. Creating ticket...");
+      alert("Error de sistema: No se encontró beneficiario. Contacta soporte.");
+    }
   };
 
-  const confirmUpgrade = () => {
-    let nextLevel = UserLevel.GUEST;
-    if (user.level === UserLevel.GUEST) nextLevel = UserLevel.SEMILLA;
-    else if (user.level === UserLevel.SEMILLA) nextLevel = UserLevel.CRECIMIENTO;
-    else if (user.level === UserLevel.CRECIMIENTO) nextLevel = UserLevel.COSECHA;
+  const confirmUpgrade = async () => {
+    if (!receiptFile) {
+      alert('Por favor selecciona una foto de tu comprobante de pago.');
+      return;
+    }
 
-    onUpdate({ 
-      level: nextLevel, 
-      earnings: user.earnings + (user.level === UserLevel.SEMILLA ? 6 : user.level === UserLevel.CRECIMIENTO ? 54 : 0) 
-    });
-    setShowUpgradeModal(false);
+    if (!beneficiary?.id) {
+      alert('Beneficiario no encontrado.');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      // 1. Upload file to Supabase Storage
+      const fileExt = receiptFile.name.split('.').pop();
+      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+      const filePath = `receipts/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('receipts')
+        .upload(filePath, receiptFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('receipts')
+        .getPublicUrl(filePath);
+
+      // 2. Create payment record
+      let nextLevel = UserLevel.GUEST;
+      if (user.level === UserLevel.GUEST) nextLevel = UserLevel.SEMILLA;
+      else if (user.level === UserLevel.SEMILLA) nextLevel = UserLevel.CRECIMIENTO;
+      else if (user.level === UserLevel.CRECIMIENTO) nextLevel = UserLevel.COSECHA;
+
+      const { error: dbError } = await supabase.from('payments').insert([
+        {
+          sender_id: user.id,
+          receiver_id: beneficiary.id,
+          amount: currentDetails.nextCost,
+          receipt_url: publicUrl,
+          level_target: nextLevel,
+          status: 'PENDING'
+        }
+      ]);
+
+      if (dbError) throw dbError;
+
+      alert('¡Pago registrado con éxito! Tu receptor debe confirmarlo para que subas de nivel.');
+      setShowUpgradeModal(false);
+      setReceiptFile(null);
+      fetchPayments();
+    } catch (error: any) {
+      alert('Error: ' + error.message);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleFileUpload = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,8 +279,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <p className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-1">Progreso Matriz</p>
           <div className="w-full bg-gray-100 rounded-full h-2 mt-4 overflow-hidden">
-            <div 
-              className="bg-emerald-500 h-full transition-all duration-1000" 
+            <div
+              className="bg-emerald-500 h-full transition-all duration-1000"
               style={{ width: `${user.matrixProgress || 45}%` }}
             ></div>
           </div>
@@ -213,9 +297,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab as any)}
-                  className={`flex-1 min-w-[120px] py-4 font-bold text-sm tracking-wide transition-colors ${
-                    activeTab === tab ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-500' : 'text-gray-400 hover:text-gray-600'
-                  }`}
+                  className={`flex-1 min-w-[120px] py-4 font-bold text-sm tracking-wide transition-colors ${activeTab === tab ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-500' : 'text-gray-400 hover:text-gray-600'
+                    }`}
                 >
                   {tab === 'OVERVIEW' ? 'PANEL' : tab === 'MATRIX' ? 'MI RED' : tab === 'PAYMENTS' ? 'PAGOS' : tab === 'CATALOG' ? 'CATÁLOGO' : 'CONFIGURACIÓN'}
                 </button>
@@ -250,7 +333,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                           <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
-                                <span className="text-xs font-bold text-emerald-700">{p.senderId.substring(0,2).toUpperCase()}</span>
+                                <span className="text-xs font-bold text-emerald-700">{p.senderId.substring(0, 2).toUpperCase()}</span>
                               </div>
                               <div>
                                 <p className="text-sm font-bold">{p.senderId}</p>
@@ -258,14 +341,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                               </div>
                             </div>
                             <div className="flex gap-2">
-                              <button 
+                              <button
                                 onClick={() => handleConfirmPayment(p.id)}
                                 title="Confirmar Recepción"
                                 className="bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 shadow-sm transition"
                               >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
                               </button>
-                              <button 
+                              <button
                                 onClick={() => handleDisputePayment(p.id)}
                                 title="Reportar Disputa"
                                 className="bg-red-500 text-white p-2 rounded-lg hover:bg-red-600 shadow-sm transition"
@@ -302,7 +385,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
               {activeTab === 'MATRIX' && (
                 <div className="flex flex-col items-center">
                   <h3 className="text-xl font-bold mb-4">Visualización de tu Red 3x3</h3>
-                  <MatrixGraph />
+                  <MatrixGraph userId={user.id} />
                   <div className="mt-8 grid grid-cols-3 gap-4 w-full max-w-lg">
                     <div className="text-center p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                       <p className="text-xs text-emerald-600 font-bold uppercase">Nivel 1</p>
@@ -325,8 +408,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                   <div className="flex justify-between items-center">
                     <h3 className="text-xl font-bold">Historial y Disputas</h3>
                     <div className="flex gap-2">
-                       <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">● Pagado</span>
-                       <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded">● Disputa</span>
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">● Pagado</span>
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded">● Disputa</span>
                     </div>
                   </div>
                   <div className="overflow-x-auto">
@@ -388,18 +471,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                         <div className="flex-grow space-y-3">
                           <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase">Título del Libro</label>
-                            <input 
-                              type="text" 
-                              value={book.title} 
+                            <input
+                              type="text"
+                              value={book.title}
                               onChange={(e) => handleBookTextUpdate(idx, 'title', e.target.value)}
                               className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm focus:ring-emerald-500 focus:border-emerald-500"
                             />
                           </div>
                           <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase">Autor</label>
-                            <input 
-                              type="text" 
-                              value={book.author} 
+                            <input
+                              type="text"
+                              value={book.author}
                               onChange={(e) => handleBookTextUpdate(idx, 'author', e.target.value)}
                               className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm focus:ring-emerald-500 focus:border-emerald-500"
                             />
@@ -425,7 +508,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                         <select
                           required
                           value={editPayment.bankName}
-                          onChange={(e) => setEditPayment({...editPayment, bankName: e.target.value})}
+                          onChange={(e) => setEditPayment({ ...editPayment, bankName: e.target.value })}
                           className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all appearance-none cursor-pointer"
                         >
                           {VENEZUELAN_BANKS.map((bank) => (
@@ -433,14 +516,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                           ))}
                         </select>
                       </div>
-                      
+
                       <div className="col-span-full md:col-span-1">
                         <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Cédula / RIF</label>
                         <input
                           type="text"
                           required
                           value={editPayment.idNumber}
-                          onChange={(e) => setEditPayment({...editPayment, idNumber: e.target.value})}
+                          onChange={(e) => setEditPayment({ ...editPayment, idNumber: e.target.value })}
                           className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all"
                         />
                       </div>
@@ -451,7 +534,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                           type="tel"
                           required
                           value={editPayment.phone}
-                          onChange={(e) => setEditPayment({...editPayment, phone: e.target.value})}
+                          onChange={(e) => setEditPayment({ ...editPayment, phone: e.target.value })}
                           className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all"
                         />
                       </div>
@@ -462,7 +545,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                           type="text"
                           required
                           value={editPayment.accountNumber}
-                          onChange={(e) => setEditPayment({...editPayment, accountNumber: e.target.value})}
+                          onChange={(e) => setEditPayment({ ...editPayment, accountNumber: e.target.value })}
                           className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white transition-all"
                         />
                       </div>
@@ -472,9 +555,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                       <button
                         type="submit"
                         disabled={saveStatus === 'SAVING'}
-                        className={`px-8 py-3 rounded-xl font-bold shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center gap-2 ${
-                          saveStatus === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                        }`}
+                        className={`px-8 py-3 rounded-xl font-bold shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center gap-2 ${saveStatus === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }`}
                       >
                         {saveStatus === 'SAVING' ? (
                           <span className="flex items-center gap-2">
@@ -506,7 +588,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
               https://vendelibros.app/#/auth?ref={user.username}
             </div>
             <div className="space-y-3">
-              <button 
+              <button
                 onClick={handleShareApp}
                 className="w-full bg-emerald-600 text-white text-sm font-bold py-3 rounded-xl hover:bg-emerald-700 transition shadow-md flex items-center justify-center gap-2"
               >
@@ -546,7 +628,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
               <h3 className="text-xl font-bold">Instrucciones de Pago Directo</h3>
               <p className="text-xs opacity-90">Estás adquiriendo el Paquete de Nivel {currentDetails.levelNum + 1}</p>
             </div>
-            
+
             <div className="p-8">
               <div className="text-center mb-8">
                 <p className="text-gray-500 text-sm mb-2">Debes enviar exactamente</p>
@@ -561,23 +643,45 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase mb-2">Datos de Pago</p>
                   <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs text-gray-600 leading-relaxed">
-                    <strong>Banco:</strong> {beneficiary.paymentInfo?.bankName}<br/>
-                    <strong>Cuenta/Email:</strong> {beneficiary.paymentInfo?.accountNumber}<br/>
-                    <strong>Teléfono:</strong> {beneficiary.paymentInfo?.phone}<br/>
+                    <strong>Banco:</strong> {beneficiary.paymentInfo?.bankName}<br />
+                    <strong>Cuenta/Email:</strong> {beneficiary.paymentInfo?.accountNumber}<br />
+                    <strong>Teléfono:</strong> {beneficiary.paymentInfo?.phone}<br />
                     <strong>RIF/CI:</strong> {beneficiary.paymentInfo?.idNumber}
                   </div>
+                </div>
+              </div>
+
+              <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 flex items-start gap-4 mb-8">
+                <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </div>
+                <div className="flex-grow">
+                  <p className="text-xs font-bold text-emerald-800 mb-1">Sube la foto del comprobante *</p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                    className="text-[10px] text-emerald-600 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-semibold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200"
+                  />
                 </div>
               </div>
 
               <div className="space-y-3">
                 <button
                   onClick={confirmUpgrade}
-                  className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition transform active:scale-95"
+                  disabled={isUploading}
+                  className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition transform active:scale-95 disabled:bg-gray-400 flex items-center justify-center gap-2"
                 >
-                  Ya realicé el pago, Confirmar
+                  {isUploading ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      Subiendo...
+                    </>
+                  ) : 'Ya realicé el pago, Confirmar'}
                 </button>
                 <button
                   onClick={() => setShowUpgradeModal(false)}
+                  disabled={isUploading}
                   className="w-full bg-gray-100 text-gray-600 font-bold py-3 rounded-xl hover:bg-gray-200 transition"
                 >
                   Cancelar
@@ -591,31 +695,100 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
   );
 };
 
-const MatrixGraph: React.FC = () => {
+const MatrixGraph: React.FC<{ userId: string }> = ({ userId }) => {
   const svgRef = React.useRef<SVGSVGElement>(null);
+
   useEffect(() => {
+    if (!svgRef.current || !userId) return;
+
+    const fetchTree = async () => {
+      // Fetch self and children (2 levels deep for visualization)
+      // Level 0: Self
+      // Level 1: Children
+      // Level 2: Grandchildren
+
+      const { data: allDescendants, error } = await supabase
+        .from('profiles')
+        .select('id, username, parent_id')
+        .or(`parent_id.eq.${userId}`); // Get direct children first
+
+      // Real recursive fetch is complex in client-side SQL, so we'll do a simple 2-level fetch
+      // 1. Get Children
+      const { data: children } = await supabase.from('profiles').select('id, username, parent_id').eq('parent_id', userId);
+
+      if (!children) return;
+
+      // 2. Get Grandchildren
+      const childrenIds = children.map(c => c.id);
+      let grandchildren: any[] = [];
+      if (childrenIds.length > 0) {
+        const { data: grand } = await supabase.from('profiles').select('id, username, parent_id').in('parent_id', childrenIds);
+        if (grand) grandchildren = grand;
+      }
+
+      const rootNode = {
+        name: 'Tú',
+        id: userId,
+        children: children.map(child => ({
+          name: child.username,
+          id: child.id,
+          children: grandchildren.filter(g => g.parent_id === child.id).map(g => ({
+            name: g.username,
+            id: g.id
+          }))
+        }))
+      };
+
+      renderTree(rootNode);
+    };
+
+    fetchTree();
+  }, [userId]);
+
+  const renderTree = (data: any) => {
     if (!svgRef.current) return;
     const width = 400;
     const height = 300;
     const svg = select(svgRef.current);
     svg.selectAll('*').remove();
-    const data = {
-      name: 'Tú',
-      children: [
-        { name: 'N1.A', children: [{name: 'N2.1'}, {name: 'N2.2'}, {name: 'N2.3'}] },
-        { name: 'N1.B', children: [{name: 'N2.4'}, {name: 'N2.5'}, {name: 'N2.6'}] },
-        { name: 'N1.C', children: [{name: 'N2.7'}, {name: 'N2.8'}, {name: 'N2.9'}] },
-      ]
-    };
+
     const root = hierarchy(data);
     const treeLayout = tree<any>().size([width - 40, height - 80]);
     treeLayout(root);
+
     const g = svg.append('g').attr('transform', 'translate(20, 40)');
-    g.selectAll('.link').data(root.links()).enter().append('path').attr('class', 'link').attr('d', linkVertical().x((d: any) => d.x).y((d: any) => d.y) as any).attr('fill', 'none').attr('stroke', '#e2e8f0').attr('stroke-width', 2);
-    const nodes = g.selectAll('.node').data(root.descendants()).enter().append('g').attr('transform', (d: any) => `translate(${d.x},${d.y})`);
-    nodes.append('circle').attr('r', 10).attr('fill', (d: any) => d.depth === 0 ? COLORS.emeraldGreen : d.depth === 1 ? COLORS.deepBlue : '#cbd5e1').attr('stroke', '#fff').attr('stroke-width', 2);
-    nodes.append('text').attr('dy', (d: any) => d.depth === 0 ? -15 : 20).attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', 'bold').style('fill', '#475569').text((d: any) => d.data.name);
-  }, []);
+
+    g.selectAll('.link')
+      .data(root.links())
+      .enter()
+      .append('path')
+      .attr('class', 'link')
+      .attr('d', linkVertical().x((d: any) => d.x).y((d: any) => d.y) as any)
+      .attr('fill', 'none')
+      .attr('stroke', '#e2e8f0')
+      .attr('stroke-width', 2);
+
+    const nodes = g.selectAll('.node')
+      .data(root.descendants())
+      .enter()
+      .append('g')
+      .attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+
+    nodes.append('circle')
+      .attr('r', 10)
+      .attr('fill', (d: any) => d.depth === 0 ? COLORS.emeraldGreen : d.depth === 1 ? COLORS.deepBlue : '#cbd5e1')
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 2);
+
+    nodes.append('text')
+      .attr('dy', (d: any) => d.depth === 0 ? -15 : 20)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '10px')
+      .style('font-weight', 'bold')
+      .style('fill', '#475569')
+      .text((d: any) => d.data.name);
+  };
+
   return <svg ref={svgRef} width="400" height="300" className="max-w-full bg-gray-50/50 rounded-2xl"></svg>;
 };
 

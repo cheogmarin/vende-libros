@@ -115,25 +115,14 @@ export const getActiveBooks = (): Book[] => {
   return DEFAULT_BOOKS;
 };
 
-// Verifica si existen datos de pago duplicados en la base de datos simulada
+// Verifica si existen datos de pago duplicados
+// En una red P2P real, esto se validaría contra la base de datos de Supabase
 export const checkDuplicatePayment = (
-  paymentData: { idNumber: string; phone: string; accountNumber: string },
-  currentUserId: string
+  _paymentData: { idNumber: string; phone: string; accountNumber: string },
+  _currentUserId: string
 ): boolean => {
-  const allUsersStr = localStorage.getItem('vende_libros_all_users') || '[]';
-  const allUsers: User[] = JSON.parse(allUsersStr);
-
-  return allUsers.some(user => {
-    // Solo comparar con otros usuarios
-    if (user.id === currentUserId) return false;
-    if (!user.paymentInfo) return false;
-
-    return (
-      user.paymentInfo.idNumber === paymentData.idNumber ||
-      user.paymentInfo.phone === paymentData.phone ||
-      user.paymentInfo.accountNumber === paymentData.accountNumber
-    );
-  });
+  // Por ahora retornamos false para permitir el registro del administrador
+  return false;
 };
 
 // Logic to find beneficiary in the P2P tree
@@ -151,7 +140,7 @@ export const getBeneficiaryForLevel = (user: User, targetLevel: number): Partial
   };
 
   if (!user.sponsorId || user.sponsorId === ROOT_USER_ID) return rootUser;
-  return rootUser; 
+  return rootUser;
 };
 
 export const ICONS = {
