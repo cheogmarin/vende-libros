@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User } from '../types';
-import { COLORS, VENEZUELAN_BANKS, checkDuplicatePayment, SECURITY_ERROR_MESSAGE } from '../constants';
+import { COLORS, VENEZUELAN_BANKS, checkDuplicatePayment, SECURITY_ERROR_MESSAGE, ROOT_USER_EMAIL } from '../constants';
 
 interface ProfileSetupProps {
   user: User;
@@ -16,7 +16,30 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
     phone: '',
     idNumber: '',
   });
+
+  // State for completing profile (e.g. after Google Auth)
+  const [missingData, setMissingData] = useState({
+    username: user.username || '',
+    sponsorId: user.sponsorId || '',
+  });
+
   const navigate = useNavigate();
+  const isRootUser = user.email === ROOT_USER_EMAIL;
+  const needsProfileCompletion = !user.username || (!user.sponsorId && !isRootUser);
+
+  const handleProfileCompletion = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!missingData.username || (!isRootUser && !missingData.sponsorId)) {
+      alert('Por favor completa todos los campos.');
+      return;
+    }
+    // Update basic profile info first
+    onComplete({
+      username: missingData.username,
+      sponsorId: isRootUser ? null : missingData.sponsorId
+    });
+    // Visual feedback handled by re-render as needsProfileCompletion will become false
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,6 +59,55 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
     navigate('/dashboard');
   };
 
+  if (needsProfileCompletion) {
+    return (
+      <div className="max-w-xl mx-auto py-12 px-4">
+        <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-gray-100">
+          <div className="text-center mb-8">
+            <div className="inline-block bg-emerald-100 p-3 rounded-full mb-4">
+              <span className="text-2xl">👋</span>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">¡Casi listo!</h2>
+            <p className="text-gray-500 mt-2">Completa tu perfil para unirte a la red.</p>
+          </div>
+
+          <form onSubmit={handleProfileCompletion} className="space-y-6">
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-2 ml-1">Elige un nombre de usuario</label>
+              <input
+                type="text"
+                required
+                value={missingData.username}
+                onChange={(e) => setMissingData({ ...missingData, username: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
+                placeholder="Ej. emprendedor2024"
+              />
+            </div>
+            {!isRootUser && (
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-2 ml-1">Código de Anfitrión (Email)</label>
+                <input
+                  type="text"
+                  required
+                  value={missingData.sponsorId}
+                  onChange={(e) => setMissingData({ ...missingData, sponsorId: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
+                  placeholder="Email de quien te invitó"
+                />
+              </div>
+            )}
+            <button
+              type="submit"
+              className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition transform hover:scale-[1.02]"
+            >
+              Continuar
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
       <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-gray-100">
@@ -52,7 +124,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
         </div>
 
         <p className="text-gray-600 mb-8 leading-relaxed">
-          Para que otros usuarios puedan pagarte directamente, necesitamos saber a qué banco y cuenta deben enviarte el dinero. 
+          Para que otros usuarios puedan pagarte directamente, necesitamos saber a qué banco y cuenta deben enviarte el dinero.
           <strong className="block mt-2 text-emerald-700">Recuerda: El dinero nunca pasa por nosotros, va directo a ti.</strong>
         </p>
 
@@ -63,7 +135,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
               <select
                 required
                 value={paymentInfo.bankName}
-                onChange={(e) => setPaymentInfo({...paymentInfo, bankName: e.target.value})}
+                onChange={(e) => setPaymentInfo({ ...paymentInfo, bankName: e.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all appearance-none cursor-pointer"
               >
                 <option value="">Selecciona una opción...</option>
@@ -72,14 +144,14 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
                 ))}
               </select>
             </div>
-            
+
             <div className="col-span-full md:col-span-1">
               <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wider">Cédula / RIF</label>
               <input
                 type="text"
                 required
                 value={paymentInfo.idNumber}
-                onChange={(e) => setPaymentInfo({...paymentInfo, idNumber: e.target.value})}
+                onChange={(e) => setPaymentInfo({ ...paymentInfo, idNumber: e.target.value })}
                 placeholder="V-12345678"
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
               />
@@ -91,7 +163,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
                 type="tel"
                 required
                 value={paymentInfo.phone}
-                onChange={(e) => setPaymentInfo({...paymentInfo, phone: e.target.value})}
+                onChange={(e) => setPaymentInfo({ ...paymentInfo, phone: e.target.value })}
                 placeholder="04121234567"
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
               />
@@ -103,7 +175,7 @@ const ProfileSetup: React.FC<ProfileSetupProps> = ({ user, onComplete }) => {
                 type="text"
                 required
                 value={paymentInfo.accountNumber}
-                onChange={(e) => setPaymentInfo({...paymentInfo, accountNumber: e.target.value})}
+                onChange={(e) => setPaymentInfo({ ...paymentInfo, accountNumber: e.target.value })}
                 placeholder="20 dígitos o email para Zelle"
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50 transition-all"
               />

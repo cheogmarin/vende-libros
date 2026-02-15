@@ -89,9 +89,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setErrors(newErrors);
   }, [formData, isRegistering, showGoogleSponsorStep]);
 
+  const isRootUser = formData.email === ROOT_USER_EMAIL;
+
   const isFormValid = isRegistering
-    ? (!errors.username && !errors.email && !errors.password && !errors.confirmPassword && !errors.sponsorCode &&
-      formData.username && formData.email && formData.password && formData.confirmPassword && formData.sponsorCode)
+    ? (!errors.username && !errors.email && !errors.password && !errors.confirmPassword && (isRootUser || !errors.sponsorCode) &&
+      formData.username && formData.email && formData.password && formData.confirmPassword && (isRootUser || formData.sponsorCode))
     : (formData.email && formData.password && !errors.email);
 
   const generateWelcomeEmail = async (username: string, sponsorId: string, email: string) => {
@@ -158,14 +160,15 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         const parentId = await findSpilloverPlacement(formData.sponsorCode);
 
         // Create profile in Supabase
+        const isRootUser = formData.email === ROOT_USER_EMAIL;
         const { error: profileError } = await supabase.from('profiles').insert([
           {
             id: data.user.id,
             username: formData.username,
             email: formData.email,
-            sponsor_id: formData.sponsorCode,
-            parent_id: parentId, // Set the actual parent in the matrix
-            level: UserLevel.GUEST,
+            sponsor_id: isRootUser ? null : formData.sponsorCode,
+            parent_id: isRootUser ? null : parentId,
+            level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
             earnings: 0,
             matrix_progress: 0,
           },
@@ -179,8 +182,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           id: data.user.id,
           username: formData.username,
           email: formData.email,
-          sponsorId: formData.sponsorCode,
-          level: UserLevel.GUEST,
+          sponsorId: isRootUser ? null : formData.sponsorCode,
+          level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
           paymentInfo: null,
           earnings: 0,
           matrixProgress: 0,
@@ -208,13 +211,30 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   };
 
   const handleFinalizeGoogleRegistration = async () => {
-    if (!formData.sponsorCode || !googleUserData) return;
+    if (!googleUserData) return;
 
-    // In a real app, you'd use supabase.auth.signInWithOAuth({ provider: 'google' })
-    // For this demonstration, we'll continue with the mock and create a profile if needed
-    // or just assume we're using Supabase Google Auth
+    const isRootUser = googleUserData.email === ROOT_USER_EMAIL;
+    const finalSponsor = isRootUser ? null : formData.sponsorCode;
 
-    alert('Funcionalidad de Google Auth con Supabase requiere configuración en el Dashboard (URL de redirección).');
+    if (!isRootUser && !finalSponsor) {
+      alert('Por favor ingresa el código de anfitrión.');
+      return;
+    }
+
+    // Mock successful Google Auth and Profile Creation
+    const newUser: User = {
+      id: 'mock-google-id-' + Date.now(),
+      username: googleUserData.name, // Will be editable in ProfileSetup if missing
+      email: googleUserData.email,
+      sponsorId: finalSponsor,
+      level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
+      paymentInfo: null,
+      earnings: 0,
+      matrixProgress: 0,
+    };
+
+    onLogin(newUser);
+    navigate('/setup-profile');
   };
 
   const handleFinalizeRegistration = () => {
@@ -365,17 +385,19 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             <div className="space-y-3">
               {isRegistering && (
                 <>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Anfitrión (Sponsor) *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.sponsorCode}
-                      onChange={(e) => setFormData({ ...formData, sponsorCode: e.target.value })}
-                      className={getInputClass(errors.sponsorCode, formData.sponsorCode)}
-                      placeholder="Email de quien te invitó"
-                    />
-                  </div>
+                  {!isRootUser && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Anfitrión (Sponsor) *</label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.sponsorCode}
+                        onChange={(e) => setFormData({ ...formData, sponsorCode: e.target.value })}
+                        className={getInputClass(errors.sponsorCode, formData.sponsorCode)}
+                        placeholder="Email de quien te invitó"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Nombre de Usuario</label>
                     <input
