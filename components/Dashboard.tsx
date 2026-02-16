@@ -324,10 +324,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
           <div className="w-full bg-gray-100 rounded-full h-2 mt-4 overflow-hidden">
             <div
               className="bg-emerald-500 h-full transition-all duration-1000"
-              style={{ width: `${user.matrixProgress || 45}%` }}
+              style={{ width: `${user.matrixProgress || 0}%` }}
             ></div>
           </div>
-          <p className="text-right text-xs mt-2 text-gray-500 font-bold">{user.matrixProgress || 45}%</p>
+          <p className="text-right text-xs mt-2 text-gray-500 font-bold">{user.matrixProgress || 0}%</p>
         </div>
       </div>
 

@@ -9,6 +9,7 @@ import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
 import { User, UserLevel } from './types';
 import { supabase } from './supabase';
+import { ROOT_USER_EMAIL } from './constants';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -47,13 +48,24 @@ const App: React.FC = () => {
       .single();
 
     if (data) {
+      // FIX: Inject default payment info for root user if missing
+      let paymentInfo = data.payment_info;
+      if (data.email === ROOT_USER_EMAIL && !paymentInfo) {
+        paymentInfo = {
+          bankName: 'BANCO DE VENEZUELA',
+          accountNumber: 'josegmarin2012@gmail.com',
+          phone: '+58 412-0000000',
+          idNumber: 'MASTER-001'
+        };
+      }
+
       const formattedUser: User = {
         id: data.id,
         username: data.username,
         email: data.email,
         sponsorId: data.sponsor_id,
         level: data.level as UserLevel,
-        paymentInfo: data.payment_info,
+        paymentInfo: paymentInfo,
         earnings: data.earnings,
         matrixProgress: data.matrix_progress,
       };
