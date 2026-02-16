@@ -351,11 +351,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
             <div className="p-8">
               {activeTab === 'OVERVIEW' && (
                 <div className="space-y-8">
+                  {/* Custom Message for Root User / Completed User */}
                   <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg">
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                       <div>
-                        <h3 className="text-xl font-bold mb-2">Próximo Paso: {currentDetails.goal}</h3>
-                        <p className="opacity-90 max-w-lg">{currentDetails.description}</p>
+                        <h3 className="text-xl font-bold mb-2">
+                          {currentDetails.nextCost > 0 ? `Próximo Paso: ${currentDetails.goal}` : 'Estado: Fundador / Administrador'}
+                        </h3>
+                        <p className="opacity-90 max-w-lg">
+                          {currentDetails.nextCost > 0
+                            ? currentDetails.description
+                            : 'Como usuario raíz, eres el punto de origen de la red. No requieres realizar pagos a niveles superiores. Tu función es administrar y expandir la comunidad.'}
+                        </p>
                       </div>
                       {currentDetails.nextCost > 0 && (
                         <button
