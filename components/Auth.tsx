@@ -391,8 +391,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
             <button
               type="submit"
-              disabled={!isFormValid || !isRegistering}
-              className={`w-full py-4 px-4 text-sm font-black rounded-xl text-white transition-all shadow-xl ${isFormValid && isRegistering
+              disabled={!isFormValid}
+              className={`w-full py-4 px-4 text-sm font-black rounded-xl text-white transition-all shadow-xl ${isFormValid
                 ? 'bg-emerald-600 hover:bg-emerald-700 transform hover:scale-[1.02] active:scale-95'
                 : 'bg-gray-200 cursor-not-allowed opacity-80'
                 }`}
