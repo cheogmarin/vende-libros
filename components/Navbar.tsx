@@ -54,11 +54,10 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
                 <Link
                   key={link.path}
                   to={link.path}
-                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                    location.pathname === link.path
+                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${location.pathname === link.path
                       ? 'border-emerald-500 text-gray-900'
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
+                    }`}
                 >
                   {link.name}
                 </Link>
@@ -66,7 +65,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            {user ? (
+            {user && (
               <div className="flex items-center space-x-2 sm:space-x-4">
                 <button
                   onClick={handleQuickShare}
@@ -83,13 +82,6 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
                   Salir
                 </button>
               </div>
-            ) : (
-              <Link
-                to="/auth"
-                className="bg-emerald-600 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-emerald-700 transition shadow-sm"
-              >
-                Ingresar
-              </Link>
             )}
           </div>
         </div>

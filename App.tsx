@@ -1,7 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { MemoryRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
+import LandingPage from './components/LandingPage';
 import Home from './components/Home';
 import Dashboard from './components/Dashboard';
 import Library from './components/Library';
@@ -130,7 +132,8 @@ const App: React.FC = () => {
         <Navbar user={user} onLogout={handleLogout} />
         <main className="flex-grow">
           <Routes>
-            <Route path="/" element={<Home isAuthenticated={isAuthenticated} />} />
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/home" element={<Home isAuthenticated={isAuthenticated} />} />
             <Route
               path="/dashboard"
               element={
