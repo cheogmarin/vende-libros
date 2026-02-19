@@ -176,7 +176,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
   const prepareUpgrade = async () => {
     const nextLevelNum = currentDetails.levelNum + 1;
     // Use the new dynamic network logic to find the beneficiary
-    const beneficiaryId = await getCommissionBeneficiary(user.id, currentDetails.goal as UserLevel);
+    let beneficiaryId = await getCommissionBeneficiary(user.id, currentDetails.goal as UserLevel);
+
+    // Fallback if no beneficiary found via compression (should at least pay someone, default to root)
+    if (!beneficiaryId && user.email !== 'josegmarin2012@gmail.com') {
+      const { data: rootUser } = await supabase.from('profiles').select('id').eq('email', 'josegmarin2012@gmail.com').single();
+      beneficiaryId = rootUser?.id || null;
+    }
 
     if (beneficiaryId) {
       const { data: benProfile } = await supabase.from('profiles').select('*').eq('id', beneficiaryId).single();
@@ -318,10 +324,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
       }
     }
 
-    // If confirming re-entry payment (Level 1 from COMPLETED status)
-    if (user.status === UserStatus.COMPLETED && nextLevel === UserLevel.SEMILLA) {
+    // If confirming re-entry payment or initial activation
+    if ((user.status === UserStatus.COMPLETED || user.level === UserLevel.GUEST) && nextLevel === UserLevel.SEMILLA) {
       nextStatus = UserStatus.ACTIVE;
-      nextCycle = user.cycle + 1;
+      if (user.status === UserStatus.COMPLETED) {
+        nextCycle = user.cycle + 1;
+      }
     }
 
     onUpdate({
@@ -443,7 +451,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
         <div className="flex-grow">
           <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
             <div className="flex border-b overflow-x-auto whitespace-nowrap">
-              {['OVERVIEW', 'MATRIX', 'PAYMENTS', 'CATALOG', 'HISTORY', 'SETTINGS'].map((tab) => (
+              {['OVERVIEW', 'MATRIX', 'PAYMENTS', ...(user.email === 'josegmarin2012@gmail.com' ? ['CATALOG'] : []), 'HISTORY', 'SETTINGS'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab as any)}
@@ -573,17 +581,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                     </div>
                     <div>
                       <h4 className="text-lg font-bold mb-4" style={{ color: COLORS.deepBlue }}>Mis Libros Activos</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        {customBooks.slice(0, 4).map((book) => (
-                          <div key={book.id} className="bg-gray-50 p-3 rounded-xl flex items-center gap-3 border border-gray-100 overflow-hidden group hover:bg-white hover:shadow-md transition">
-                            <img src={book.cover} className="w-10 h-14 object-cover rounded shadow-sm" alt="" />
-                            <div className="truncate">
-                              <p className="text-[10px] font-bold truncate group-hover:text-emerald-700">{book.title}</p>
-                              <p className="text-[8px] text-gray-500">Nivel 1</p>
+                      {user.level === UserLevel.GUEST ? (
+                        <div className="bg-emerald-50 p-6 rounded-2xl border border-dashed border-emerald-200 text-center">
+                          <p className="text-[10px] text-emerald-800 font-bold mb-2">Inversión de $2 pendiente</p>
+                          <p className="text-[9px] text-emerald-600 leading-tight">Activa tu cuenta para desbloquear tus primeros 4 eBooks de venta.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                          {customBooks.slice(0, 4).map((book) => (
+                            <div key={book.id} className="bg-gray-50 p-3 rounded-xl flex items-center gap-3 border border-gray-100 overflow-hidden group hover:bg-white hover:shadow-md transition">
+                              <img src={book.cover} className="w-10 h-14 object-cover rounded shadow-sm" alt="" />
+                              <div className="truncate">
+                                <p className="text-[10px] font-bold truncate group-hover:text-emerald-700">{book.title}</p>
+                                <p className="text-[8px] text-gray-500">Adquirido</p>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 

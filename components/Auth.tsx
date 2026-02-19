@@ -172,18 +172,21 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       }
 
       if (data.user) {
-        // Find placement (Spillover)
-        const parentId = await findSpilloverPlacement(formData.sponsorCode);
+        // 1. Resolve Sponsor Email to UUID safely
+        const resolvedSponsorId = await findActiveSponsor(formData.sponsorCode);
 
-        // Create profile in Supabase
+        // 2. Find placement (Spillover) using the actual UUID
+        const parentId = await findSpilloverPlacement(resolvedSponsorId || formData.sponsorCode);
+
+        // 3. Create profile in Supabase
         const isRootUser = formData.email === ROOT_USER_EMAIL;
         const { error: profileError } = await supabase.from('profiles').insert([
           {
             id: data.user.id,
             username: formData.username,
             email: formData.email,
-            sponsor_id: isRootUser ? null : formData.sponsorCode,
-            parent_id: isRootUser ? null : (await findActiveSponsor(formData.sponsorCode) || parentId),
+            sponsor_id: isRootUser ? null : (resolvedSponsorId || formData.sponsorCode),
+            parent_id: isRootUser ? null : (resolvedSponsorId || parentId),
             level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
             status: 'ACTIVE',
             cycle: 1,

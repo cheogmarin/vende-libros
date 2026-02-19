@@ -9,7 +9,7 @@ import Dashboard from './components/Dashboard';
 import Library from './components/Library';
 import Auth from './components/Auth';
 import ProfileSetup from './components/ProfileSetup';
-import { User, UserLevel } from './types';
+import { User, UserLevel, UserStatus } from './types';
 import { supabase } from './supabase';
 import { ROOT_USER_EMAIL } from './constants';
 
@@ -67,6 +67,9 @@ const App: React.FC = () => {
         email: data.email,
         sponsorId: data.sponsor_id,
         level: data.level as UserLevel,
+        status: data.status as UserStatus,
+        cycle: data.cycle || 1,
+        cycleHistory: data.cycle_history || [],
         paymentInfo: paymentInfo,
         earnings: data.earnings,
         matrixProgress: data.matrix_progress,

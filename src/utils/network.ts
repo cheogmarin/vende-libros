@@ -22,7 +22,7 @@ export const findSpilloverPlacement = async (sponsorId: string): Promise<string 
     const { count, error } = await supabase
         .from('profiles')
         .select('id', { count: 'exact', head: true })
-        .eq('parent_id', sponsorId);
+        .or(`parent_id.eq."${sponsorId}",parent_id.eq."${sponsorId}"`); // Handles email or ID
 
     if (error) {
         console.error('Error checking sponsor children:', error);
@@ -145,7 +145,7 @@ export const getCommissionBeneficiary = async (
         const { data: user, error } = await supabase
             .from('profiles')
             .select('parent_id')
-            .eq('id', currentId)
+            .or(`id.eq."${currentId}",email.eq."${currentId}"`)
             .single();
 
         if (error || !user?.parent_id) return null; // Orphan or root
@@ -162,7 +162,7 @@ export const getCommissionBeneficiary = async (
         const { data: candidate, error } = await supabase
             .from('profiles')
             .select('id, level, status, parent_id, email')
-            .eq('id', currentId)
+            .or(`id.eq."${currentId}",email.eq."${currentId}"`)
             .single();
 
         if (error || !candidate) return null;
