@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserLevel, Book, PaymentRecord } from '../types';
+import { User, UserLevel, UserStatus, Book, PaymentRecord } from '../types';
 import { COLORS, ICONS, getActiveBooks, VENEZUELAN_BANKS, checkDuplicatePayment, SECURITY_ERROR_MESSAGE } from '../constants';
 import { select, hierarchy, tree, linkVertical } from 'd3';
 import { supabase } from '../supabase';
-import { getCommissionBeneficiary } from '../src/utils/network';
+import { getCommissionBeneficiary, findActiveSponsor } from '../src/utils/network';
 
 interface DashboardProps {
   user: User;
@@ -21,6 +21,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Misión Inspiradora (Video) State
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string>("https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/video/motivacion-1.mp4");
 
   // Network Stats State
   const [networkStats, setNetworkStats] = useState({
@@ -115,7 +120,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
     if (!error) {
       const payment = payments.find(p => p.id === paymentId);
       if (payment) {
-        onUpdate({ earnings: user.earnings + payment.amount });
+        handleUpdateLevelAndStatus(payment);
         fetchPayments();
       }
     } else {
@@ -144,6 +149,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
     [UserLevel.SEMILLA]: { levelNum: 1, name: 'Semilla', cost: 2, nextCost: 6, goal: 'Crecimiento', description: 'Vende a 3 personas para ganar $6. Luego desbloquea el Paquete Doble.' },
     [UserLevel.CRECIMIENTO]: { levelNum: 2, name: 'Crecimiento', cost: 6, nextCost: 20, goal: 'Cosecha', description: 'Recibe 9 pagos de $6 de tu segundo nivel ($54 totales). Luego desbloquea el Paquete Triple.' },
     [UserLevel.COSECHA]: { levelNum: 3, name: 'Cosecha', cost: 20, nextCost: 0, goal: 'Finalizado', description: 'Recibe 27 pagos de $20 de tu tercer nivel ($540 totales). ¡Felicidades, completaste la matriz!' },
+  };
+
+  const handleRestartCycle = async () => {
+    if (!user.sponsorId) {
+      alert("Error: No se encontró patrocinador original.");
+      return;
+    }
+
+    const activeSponsorId = await findActiveSponsor(user.sponsorId);
+    if (!activeSponsorId) {
+      alert("Error: No se encontró un patrocinador activo en tu línea ascendente.");
+      return;
+    }
+
+    // Set target for level 1 payment to restart
+    const { data: sponsorProfile } = await supabase.from('profiles').select('*').eq('id', activeSponsorId).single();
+    if (sponsorProfile) {
+      setBeneficiary(sponsorProfile);
+      setShowUpgradeModal(true);
+    }
   };
 
   const currentDetails = levelDetails[user.level];
@@ -215,6 +240,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
 
       if (dbError) throw dbError;
 
+      // 3. Post-payment Logic: Auto-detect cycle completion or restart
+      if (user.status === 'COMPLETED' && nextLevel === UserLevel.SEMILLA) {
+        // User is restarting. We update their status back to ACTIVE when payment is confirmed.
+        // For now, we'll wait for confirmation as usual, but we can pre-set some data.
+      }
+
       alert('¡Pago registrado con éxito! Tu receptor debe confirmarlo para que subas de nivel.');
       setShowUpgradeModal(false);
       setReceiptFile(null);
@@ -224,6 +255,82 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleVideoUpload = async () => {
+    if (!videoFile) {
+      alert('Seleccione un video primero.');
+      return;
+    }
+
+    setIsUploadingVideo(true);
+    try {
+      // 1. Upload new video (overwriting if possible or using a new name)
+      const fileName = `motivacion-1.mp4`; // Overwrite the main video
+      const { error: uploadError } = await supabase.storage
+        .from('video')
+        .upload(fileName, videoFile, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('video')
+        .getPublicUrl(fileName);
+
+      // 2. Cache-busting: add a timestamp to the URL to force refresh
+      const finalUrl = `${publicUrl}?t=${Date.now()}`;
+      setVideoUrl(finalUrl);
+
+      alert('¡Video motivacional actualizado con éxito! Los cambios se verán reflejados en la Landing Page.');
+      setVideoFile(null);
+    } catch (error: any) {
+      alert('Error al subir video: ' + error.message);
+    } finally {
+      setIsUploadingVideo(false);
+    }
+  };
+
+  const handleUpdateLevelAndStatus = async (payment: PaymentRecord) => {
+    // This logic should ideally be in a Supabase Trigger or a central function
+    // But for now we handle it here on confirmation
+
+    let nextLevel = payment.levelTarget;
+    let nextStatus = user.status;
+    let nextCycle = user.cycle;
+    let nextHistory = [...(user.cycleHistory || [])];
+
+    // If confirming the 27th payment of Level 3
+    if (nextLevel === UserLevel.COSECHA) {
+      const { count } = await supabase
+        .from('payments')
+        .select('id', { count: 'exact', head: true })
+        .eq('receiver_id', user.id)
+        .eq('level_target', UserLevel.COSECHA)
+        .eq('status', 'CONFIRMED');
+
+      if ((count || 0) + 1 >= 27) {
+        nextStatus = UserStatus.COMPLETED;
+        nextHistory.push({
+          cycle: user.cycle,
+          completedAt: Date.now(),
+          earnings: user.earnings + payment.amount
+        });
+      }
+    }
+
+    // If confirming re-entry payment (Level 1 from COMPLETED status)
+    if (user.status === UserStatus.COMPLETED && nextLevel === UserLevel.SEMILLA) {
+      nextStatus = UserStatus.ACTIVE;
+      nextCycle = user.cycle + 1;
+    }
+
+    onUpdate({
+      level: nextLevel,
+      status: nextStatus,
+      cycle: nextCycle,
+      cycleHistory: nextHistory,
+      earnings: user.earnings + payment.amount
+    });
   };
 
   const handleFileUpload = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -336,19 +443,60 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
         <div className="flex-grow">
           <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
             <div className="flex border-b overflow-x-auto whitespace-nowrap">
-              {['OVERVIEW', 'MATRIX', 'PAYMENTS', 'CATALOG', 'SETTINGS'].map((tab) => (
+              {['OVERVIEW', 'MATRIX', 'PAYMENTS', 'CATALOG', 'HISTORY', 'SETTINGS'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab as any)}
                   className={`flex-1 min-w-[120px] py-4 font-bold text-sm tracking-wide transition-colors ${activeTab === tab ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-500' : 'text-gray-400 hover:text-gray-600'
                     }`}
                 >
-                  {tab === 'OVERVIEW' ? 'PANEL' : tab === 'MATRIX' ? 'MI RED' : tab === 'PAYMENTS' ? 'PAGOS' : tab === 'CATALOG' ? 'CATÁLOGO' : 'CONFIGURACIÓN'}
+                  {tab === 'OVERVIEW' ? 'PANEL' : tab === 'MATRIX' ? 'MI RED' : tab === 'PAYMENTS' ? 'PAGOS' : tab === 'CATALOG' ? 'CATÁLOGO' : tab === 'HISTORY' ? 'HISTORIAL' : 'CONFIGURACIÓN'}
                 </button>
               ))}
             </div>
 
             <div className="p-8">
+              {activeTab === 'HISTORY' && (
+                <div className="space-y-6">
+                  <h3 className="text-xl font-bold">Historial de Ciclos</h3>
+                  {user.cycleHistory && user.cycleHistory.length > 0 ? (
+                    <div className="grid gap-4">
+                      {user.cycleHistory.map((record, idx) => (
+                        <div key={idx} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="bg-emerald-100 p-3 rounded-xl text-emerald-600">
+                              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <div>
+                              <p className="font-bold">Ciclo {record.cycle}</p>
+                              <p className="text-xs text-gray-500">Finalizado el {new Date(record.completedAt).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-emerald-600">+${record.earnings}</p>
+                            <p className="text-[10px] text-gray-400 uppercase">Ganancia Total</p>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="bg-emerald-50 p-4 rounded-2xl border border-dashed border-emerald-200 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-emerald-200 p-3 rounded-xl text-emerald-700 animate-pulse">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                          </div>
+                          <div>
+                            <p className="font-bold text-emerald-800">Ciclo {user.cycle} (En curso)</p>
+                            <p className="text-xs text-emerald-600">Progreso: {user.matrixProgress}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
+                      <p className="text-gray-400 italic">Aún estás en tu primer ciclo. ¡Completa tu nivel 3 para ver tu historial!</p>
+                    </div>
+                  )}
+                </div>
+              )}
               {activeTab === 'OVERVIEW' && (
                 <div className="space-y-8">
                   {/* Custom Message for Root User / Completed User */}
@@ -370,6 +518,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                           className="bg-white text-emerald-700 font-bold px-8 py-3 rounded-xl shadow-lg hover:scale-105 transition transform"
                         >
                           Adquirir por ${currentDetails.nextCost}
+                        </button>
+                      )}
+                      {user.status === 'COMPLETED' && (
+                        <button
+                          onClick={handleRestartCycle}
+                          className="bg-white text-amber-700 font-bold px-8 py-3 rounded-xl shadow-lg hover:scale-105 transition transform flex items-center gap-2"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                          Reiniciar Ciclo ($2)
                         </button>
                       )}
                     </div>
@@ -429,6 +586,70 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Misión Inspiradora Management (Root/Admin Only) */}
+                  {(user.email === 'josegmarin2012@gmail.com' || currentDetails.nextCost === 0) && (
+                    <div className="bg-gradient-to-br from-gray-900 to-emerald-900 rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
+
+                      <div className="relative z-10">
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="p-3 bg-emerald-500/20 rounded-2xl">
+                            <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="text-2xl font-bold">Misión Inspiradora</h3>
+                            <p className="text-emerald-300/80 text-sm">Gestiona el video motivacional de atracción para la Landing Page.</p>
+                          </div>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-8 items-center">
+                          <div className="space-y-4">
+                            <div className="p-4 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
+                              <label className="block text-xs font-bold text-emerald-400 uppercase mb-2">Nuevo Video (Recomendado {'<'} 40MB)</label>
+                              <input
+                                type="file"
+                                accept="video/*"
+                                onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                                className="w-full text-xs text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-emerald-500 file:text-white hover:file:bg-emerald-600 transition cursor-pointer"
+                              />
+                              {videoFile && (
+                                <p className="mt-2 text-[10px] text-emerald-300 italic">Archivo listo: {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(2)} MB)</p>
+                              )}
+                            </div>
+                            <button
+                              onClick={handleVideoUpload}
+                              disabled={isUploadingVideo || !videoFile}
+                              className="px-8 py-4 bg-emerald-500 hover:bg-emerald-400 disabled:bg-gray-700 text-white font-bold rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center gap-3"
+                            >
+                              {isUploadingVideo ? (
+                                <>
+                                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                  Subiendo Video...
+                                </>
+                              ) : (
+                                <>
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                  Actualizar Video de Portada
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          <div className="relative group aspect-video rounded-2xl overflow-hidden bg-black/40 border border-white/10">
+                            <video key={videoUrl} controls className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition">
+                              <source src={videoUrl} type="video/mp4" />
+                            </video>
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition">
+                              <span className="bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full text-[10px] font-bold">VISTA PREVIA ACTUAL</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

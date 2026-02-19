@@ -95,6 +95,34 @@ export const findSpilloverPlacement = async (sponsorId: string): Promise<string 
 };
 
 /**
+ * Traverses up the tree to find an active sponsor.
+ * Used for placement to ensure users are under someone who can support them.
+ */
+export const findActiveSponsor = async (currentSponsorId: string): Promise<string | null> => {
+    let currentId = currentSponsorId;
+
+    while (currentId) {
+        const { data: sponsor, error } = await supabase
+            .from('profiles')
+            .select('id, status, parent_id, email')
+            .or(`id.eq."${currentId}",email.eq."${currentId}"`)
+            .single();
+
+        if (error || !sponsor) return null;
+
+        // Root user or Active user is a valid placement parent
+        if (sponsor.email === 'josegmarin2012@gmail.com' || sponsor.status === 'ACTIVE') {
+            return sponsor.id;
+        }
+
+        // Cycle up
+        if (!sponsor.parent_id) return null;
+        currentId = sponsor.parent_id;
+    }
+    return null;
+};
+
+/**
  * Traverses up the tree to find the qualified beneficiary for a specific level payment.
  * Dynamic Compression: Skips users who are not active/qualified for that level.
  */
@@ -127,37 +155,31 @@ export const getCommissionBeneficiary = async (
     }
 
     // Now 'currentId' is the ideal beneficiary (e.g. Great-Grandparent).
-    // We must check if they are qualified. IF NOT, we keep going UP (Compression).
+    // We must check if they are qualified AND ACTIVE. IF NOT, we keep going UP (Compression).
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
         const { data: candidate, error } = await supabase
             .from('profiles')
-            .select('id, level, parent_id, email')
+            .select('id, level, status, parent_id, email')
             .eq('id', currentId)
             .single();
 
-        if (error || !candidate) return null; // Should not happen unless database inconsistency
+        if (error || !candidate) return null;
 
-        // Check logic:
-        // 1. Root user always qualifies
-        if (candidate.email === 'josegmarin2012@gmail.com') return candidate.id;
+        // 1. Root user always qualifies if they are not inactive
+        if (candidate.email === 'josegmarin2012@gmail.com' && candidate.status !== 'INACTIVE') return candidate.id;
 
-        // 2. Check strict level requirements
-        // To receive Level 1 ($2), must be at least Level 1
-        // To receive Level 2 ($6), must be at least Level 2 (CRECIMIENTO)
-        // To receive Level 3 ($20), must be at least Level 3 (COSECHA)
-
+        // 2. Check strict level requirements and ACTIVE status
         const candidateLevelNum = getLevelNumeric(candidate.level);
-        const requiredLevelNum = getLevelNumeric(targetLevel); // Actually, usually you need to be AT LEAST the level of the product being sold.
+        const requiredLevelNum = getLevelNumeric(targetLevel);
 
-        // Rule: You can receive payments for a level if you have unlocked that level yourself.
-        if (candidateLevelNum >= requiredLevelNum) {
+        if (candidate.status === 'ACTIVE' && candidateLevelNum >= requiredLevelNum) {
             return candidate.id;
         }
 
-        // Compression: Candidate not qualified. Move to THEIR parent.
-        if (!candidate.parent_id) return null; // Reached top without luck
+        // Compression: Candidate not qualified or not active. Move to THEIR parent.
+        if (!candidate.parent_id) return null;
         currentId = candidate.parent_id;
     }
 };

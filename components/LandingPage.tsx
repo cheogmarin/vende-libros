@@ -158,6 +158,57 @@ const LandingPage: React.FC = () => {
                 </div>
             </section>
 
+            {/* Video Section */}
+            <section className="py-20 bg-white overflow-hidden relative">
+                {/* Decorative background gradients */}
+                <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-100/30 rounded-full blur-3xl -translate-y-1/2"></div>
+                <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-100/30 rounded-full blur-3xl translate-y-1/2"></div>
+
+                <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+                    <div className="text-center mb-12">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 rounded-full border border-emerald-100 mb-4">
+                            <span className="relative flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
+                            <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Misión Inspiradora</span>
+                        </div>
+                        <h2 className="text-3xl md:text-5xl font-extrabold mb-4" style={{ color: COLORS.deepBlue }}>
+                            Mira esto antes de empezar
+                        </h2>
+                        <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+                            Descubre cómo personas comunes están transformando su realidad con solo $2 y este sistema educativo.
+                        </p>
+                    </div>
+
+                    <div className="relative group">
+                        {/* Outer Glow Effect */}
+                        <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-600 rounded-[2.5rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
+
+                        {/* Video Container */}
+                        <div className="relative overflow-hidden rounded-[2rem] bg-gray-900 shadow-2xl border-4 border-white aspect-video flex items-center justify-center group-hover:scale-[1.01] transition-transform duration-500">
+                            {/* Reemplaza la URL del video con tu link de Supabase */}
+                            <video
+                                controls
+                                className="w-full h-full object-cover"
+                                preload="none"
+                                poster="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1200&q=80"
+                            >
+                                <source src="https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/video/motivacion-1.mp4" type="video/mp4" />
+                                Tu navegador no soporta la reproducción de videos.
+                            </video>
+
+                            {/* Overlay indicator if not playing */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none flex items-end p-8">
+                                <p className="text-white text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                    Haz clic para ver el video informativo
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             {/* How It Works Section */}
             <section id="como-funciona" className="py-20 bg-white">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

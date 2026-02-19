@@ -44,10 +44,24 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <Link to="/" className="flex-shrink-0 flex items-center">
+            <Link to="/" className="flex-shrink-0 flex items-center gap-3">
               <span className="text-2xl font-bold italic" style={{ color: COLORS.deepBlue }}>
                 Vende<span style={{ color: COLORS.emeraldGreen }}>Libros</span>
               </span>
+              {user && (
+                <div className="flex flex-col items-start border-l border-gray-200 pl-3">
+                  <span className="text-sm font-bold truncate max-w-[150px]" style={{ color: COLORS.deepBlue }}>{user.username}</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className={`w-2 h-2 rounded-full ${user.status === 'ACTIVE' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                      user.status === 'COMPLETED' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
+                        'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
+                      }`}></div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                      {user.status === 'ACTIVE' ? 'Activo' : user.status === 'COMPLETED' ? 'Completado' : 'Inactivo'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </Link>
             <div className="hidden sm:ml-8 sm:flex sm:space-x-6">
               {navLinks.map((link) => (
@@ -55,8 +69,8 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
                   key={link.path}
                   to={link.path}
                   className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${location.pathname === link.path
-                      ? 'border-emerald-500 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    ? 'border-emerald-500 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                     }`}
                 >
                   {link.name}

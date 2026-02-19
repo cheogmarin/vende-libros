@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, UserLevel } from '../types';
+import { User, UserLevel, UserStatus } from '../types';
 import { COLORS, ROOT_USER_EMAIL } from '../constants';
 import { GoogleGenAI } from "@google/genai";
-import { findSpilloverPlacement } from '../src/utils/network';
+import { findSpilloverPlacement, findActiveSponsor } from '../src/utils/network';
 import { supabase } from '../supabase';
 
 interface AuthProps {
@@ -142,6 +142,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         email: mockGoogleData.email,
         sponsorId: isRootUser ? null : getInitialSponsor(),
         level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
+        status: isRootUser ? UserStatus.ACTIVE : UserStatus.ACTIVE,
+        cycle: 1,
+        cycleHistory: [],
         paymentInfo: null,
         earnings: 0,
         matrixProgress: 0,
@@ -180,8 +183,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             username: formData.username,
             email: formData.email,
             sponsor_id: isRootUser ? null : formData.sponsorCode,
-            parent_id: isRootUser ? null : parentId,
+            parent_id: isRootUser ? null : (await findActiveSponsor(formData.sponsorCode) || parentId),
             level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
+            status: 'ACTIVE',
+            cycle: 1,
             earnings: 0,
             matrix_progress: 0,
           },
@@ -197,6 +202,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           email: formData.email,
           sponsorId: isRootUser ? null : formData.sponsorCode,
           level: isRootUser ? UserLevel.COSECHA : UserLevel.GUEST,
+          status: UserStatus.ACTIVE,
+          cycle: 1,
+          cycleHistory: [],
           paymentInfo: null,
           earnings: 0,
           matrixProgress: 0,
@@ -220,6 +228,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             email: ROOT_USER_EMAIL,
             sponsorId: null,
             level: UserLevel.COSECHA,
+            status: UserStatus.ACTIVE,
+            cycle: 1,
+            cycleHistory: [],
             paymentInfo: {
               bankName: 'BANCO DE VENEZUELA',
               accountNumber: 'josegmarin2012@gmail.com',
