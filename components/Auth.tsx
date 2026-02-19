@@ -19,6 +19,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [simulatedEmail, setSimulatedEmail] = useState<{ subject: string; body: string } | null>(null);
   const [pendingUser, setPendingUser] = useState<User | null>(null);
   const [googleUserData, setGoogleUserData] = useState<{ name: string, email: string } | null>(null);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const navigate = useNavigate();
 
@@ -93,7 +95,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   const isFormValid = isRegistering
     ? (!errors.username && !errors.email && !errors.password && !errors.confirmPassword && (isRootUser || !errors.sponsorCode) &&
-      formData.username && formData.email && formData.password && formData.confirmPassword && (isRootUser || formData.sponsorCode))
+      formData.username && formData.email && formData.password && formData.confirmPassword && (isRootUser || formData.sponsorCode) && acceptTerms)
     : (formData.email && formData.password && !errors.email);
 
   const generateWelcomeEmail = async (username: string, sponsorId: string, email: string) => {
@@ -425,6 +427,29 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               )}
             </div>
 
+            {isRegistering && (
+              <div className="flex items-start gap-2 py-2">
+                <input
+                  type="checkbox"
+                  id="terms"
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                  className="mt-1 h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-gray-300 rounded"
+                />
+                <label htmlFor="terms" className="text-sm text-gray-600">
+                  Al registrarme, acepto los{' '}
+                  <button
+                    type="button"
+                    onClick={() => setShowTermsModal(true)}
+                    className="text-emerald-600 font-bold hover:underline"
+                  >
+                    Términos de Uso y Privacidad
+                  </button>{' '}
+                  de Vende Libros.
+                </label>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={!isFormValid}
@@ -453,6 +478,76 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           </button>
         </div>
       </div>
+
+      {/* Modal de Términos y Condiciones */}
+      {showTermsModal && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="bg-emerald-600 p-6 text-white flex justify-between items-center shrink-0">
+              <h3 className="text-xl font-bold">📜 Términos y Condiciones</h3>
+              <button
+                onClick={() => setShowTermsModal(false)}
+                className="hover:bg-white/20 p-2 rounded-full transition"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="p-8 overflow-y-auto text-gray-700 space-y-6">
+              <section>
+                <h4 className="font-bold text-emerald-700 mb-2">1. Derechos del Usuario</h4>
+                <ul className="list-disc pl-5 space-y-2 text-sm">
+                  <li><strong>Propiedad de Comisiones:</strong> El usuario tiene derecho a recibir el 100% de las comisiones generadas por sus ventas directas e indirectas, según el nivel activado.</li>
+                  <li><strong>Acceso a Contenido:</strong> Al confirmar su pago, el usuario tiene derecho al acceso ilimitado (mientras su cuenta esté activa) a los libros y videos correspondientes a su nivel.</li>
+                  <li><strong>Derecho al Olvido:</strong> El usuario puede darse de baja en cualquier momento, solicitando la eliminación de sus datos personales mediante el botón de "Darse de Baja".</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 className="font-bold text-emerald-700 mb-2">2. Deberes del Usuario</h4>
+                <ul className="list-disc pl-5 space-y-2 text-sm">
+                  <li><strong>Veracidad de Pagos:</strong> Es deber del usuario subir comprobantes de pago reales y verificables. El intento de fraude con recibos falsos resultará en la expulsión inmediata.</li>
+                  <li><strong>Unicidad de Cuenta:</strong> Se prohíbe el uso de métodos de pago (banco/pago móvil) duplicados en diferentes cuentas. Cada usuario debe ser una persona real con datos únicos.</li>
+                  <li><strong>Ética Comercial:</strong> El usuario se compromete a no utilizar spam o publicidad engañosa para atraer prospectos, protegiendo la reputación de la comunidad.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 className="font-bold text-emerald-700 mb-2">3. Rol del Administrador (Usuario 0)</h4>
+                <ul className="list-disc pl-5 space-y-2 text-sm">
+                  <li><strong>Facilitador Tecnológico:</strong> El administrador garantiza el funcionamiento de la plataforma, el servidor y la seguridad de los datos.</li>
+                  <li><strong>Resolución de Conflictos:</strong> El administrador actuará como mediador si un pago no es confirmado en el tiempo estipulado (24h), teniendo la facultad de activar niveles tras validar la transacción.</li>
+                  <li><strong>No Custodia de Fondos:</strong> El administrador declara que no recibe, retiene ni gestiona el dinero de las ventas de los usuarios, salvo aquellas que le correspondan por su posición en la red o por redirección raíz.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 className="font-bold text-emerald-700 mb-2">4. Uso de Datos Personales (Privacidad)</h4>
+                <ul className="list-disc pl-5 space-y-2 text-sm">
+                  <li><strong>Finalidad:</strong> Los datos solicitados (nombre, correo, datos de pago) se utilizan exclusivamente para la gestión de la red y para que otros usuarios puedan realizarte los pagos.</li>
+                  <li><strong>Seguridad:</strong> Los datos están protegidos bajo protocolos de cifrado y no serán compartidos, vendidos ni cedidos a terceras empresas bajo ningún concepto.</li>
+                  <li><strong>Visibilidad Limitada:</strong> Tu número de contacto y datos de pago solo serán visibles para los miembros de tu red que necesiten realizarte un pago directamente.</li>
+                </ul>
+              </section>
+
+              <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                <p className="text-xs font-bold text-emerald-800 italic">
+                  Cláusula de Exención de Responsabilidad: "Vende Libros es una herramienta de gestión de ventas P2P. El éxito financiero depende exclusivamente del esfuerzo comercial del usuario. La plataforma no garantiza ingresos sin la realización de ventas efectivas."
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-100 shrink-0">
+              <button
+                onClick={() => { setAcceptTerms(true); setShowTermsModal(false); }}
+                className="w-full bg-emerald-600 text-white font-bold py-3 rounded-2xl hover:bg-emerald-700 transition"
+              >
+                Entendido, acepto los términos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
