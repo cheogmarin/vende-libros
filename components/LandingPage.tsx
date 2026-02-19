@@ -194,7 +194,7 @@ const LandingPage: React.FC = () => {
                                 preload="metadata"
                                 poster="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1200&q=80"
                             >
-                                <source src={`https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/VIDEOS/motivacion-1.mp4?t=${Date.now()}`} type="video/mp4" />
+                                <source src={`https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/videos/motivacion-1.mp4?t=${Date.now()}`} type="video/mp4" />
                                 Tu navegador no soporta la reproducción de videos.
                             </video>
 
