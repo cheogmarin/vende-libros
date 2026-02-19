@@ -191,10 +191,10 @@ const LandingPage: React.FC = () => {
                             <video
                                 controls
                                 className="w-full h-full object-cover"
-                                preload="none"
+                                preload="metadata"
                                 poster="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=1200&q=80"
                             >
-                                <source src="https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/video/motivacion-1.mp4" type="video/mp4" />
+                                <source src={`https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/video/motivacion-1.mp4?t=${Date.now()}`} type="video/mp4" />
                                 Tu navegador no soporta la reproducción de videos.
                             </video>
 
