@@ -274,13 +274,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onUpdate }) => {
       // 1. Upload new video (overwriting if possible or using a new name)
       const fileName = `motivacion-1.mp4`; // Overwrite the main video
       const { error: uploadError } = await supabase.storage
-        .from('video')
+        .from('VIDEOS')
         .upload(fileName, videoFile, { upsert: true });
 
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage
-        .from('video')
+        .from('VIDEOS')
         .getPublicUrl(fileName);
 
       // 2. Cache-busting: add a timestamp to the URL to force refresh
