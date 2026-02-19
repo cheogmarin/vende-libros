@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, UserLevel, UserStatus } from '../types';
 import { COLORS, ROOT_USER_EMAIL } from '../constants';
 import { GoogleGenAI } from "@google/genai";
-import { findSpilloverPlacement, findActiveSponsor } from '../src/utils/network';
+import { findSpilloverPlacement, findActiveSponsor, getRandomGuide } from '../src/utils/network';
 import { supabase } from '../supabase';
 
 interface AuthProps {
@@ -21,6 +21,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [googleUserData, setGoogleUserData] = useState<{ name: string, email: string } | null>(null);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [isAssigningGuide, setIsAssigningGuide] = useState(false);
 
   const navigate = useNavigate();
 
@@ -101,7 +102,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const generateWelcomeEmail = async (username: string, sponsorId: string, email: string) => {
     setIsGeneratingEmail(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Genera un correo electrónico de bienvenida profesional y motivador en ESPAÑOL para un nuevo usuario de 'Vende Libros'. 
@@ -174,14 +175,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       }
 
       if (data.user) {
-        // 1. Resolve Sponsor Email to UUID safely
         const resolvedSponsorId = await findActiveSponsor(formData.sponsorCode);
-
-        // 2. Find placement (Spillover) using the actual UUID
         const parentId = await findSpilloverPlacement(resolvedSponsorId || formData.sponsorCode);
-
-        // 3. Create profile in Supabase
         const isRootUser = formData.email === ROOT_USER_EMAIL;
+
         const { error: profileError } = await supabase.from('profiles').insert([
           {
             id: data.user.id,
@@ -225,7 +222,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       });
 
       if (error) {
-        // FALLBACK: Permitir acceso administrativo directo si falla Supabase (ej. email no confirmado)
         if (formData.email === ROOT_USER_EMAIL) {
           const rootUser: User = {
             id: 'usr_root_001',
@@ -255,7 +251,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       }
 
       if (data.user) {
-        // App.tsx will handle the session and fetch profile
         navigate('/dashboard');
       }
     }
@@ -291,16 +286,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         </div>
       )}
 
-
-
-      {/* Email Simulation Modal with 3 paragraphs and scroll */}
+      {/* Email Simulation Modal */}
       {simulatedEmail && (
         <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-lg flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
             <div className="bg-emerald-600 p-8 text-white flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="bg-white/20 p-3 rounded-2xl">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg>
                 </div>
                 <div>
                   <h3 className="font-bold text-xl">Confirmación de Registro</h3>
@@ -469,6 +462,30 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           </form>
         </div>
 
+        {isRegistering && (
+          <div className="text-center mt-4">
+            <button
+              onClick={async () => {
+                setIsAssigningGuide(true);
+                const guide = await getRandomGuide();
+                if (guide) {
+                  setFormData({ ...formData, sponsorCode: guide });
+                  alert("🎉 ¡Hemos asignado a un guía experto para acompañarte!");
+                }
+                setIsAssigningGuide(false);
+              }}
+              disabled={isAssigningGuide}
+              className="text-gray-500 hover:text-emerald-600 text-[11px] font-medium transition flex flex-col items-center gap-1 mx-auto"
+            >
+              <span>{isAssigningGuide ? 'Buscando al mejor guía para ti...' : '¿No tienes un enlace de invitación?'}</span>
+              {!isAssigningGuide && <span className="font-bold text-emerald-600 underline">Haz clic aquí para asignarte un guía oficial.</span>}
+            </button>
+            <p className="mt-2 text-[9px] text-gray-400 px-4">
+              * El Rotador Equitativo premia a los usuarios más activos del sistema para garantizar tu éxito.
+            </p>
+          </div>
+        )}
+
         <div className="text-center mt-6">
           <button
             onClick={() => setIsRegistering(!isRegistering)}
@@ -479,7 +496,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         </div>
       </div>
 
-      {/* Modal de Términos y Condiciones */}
       {showTermsModal && (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl max-h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col">

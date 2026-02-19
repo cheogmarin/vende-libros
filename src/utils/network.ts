@@ -184,6 +184,38 @@ export const getCommissionBeneficiary = async (
     }
 };
 
+/**
+ * Equitable Rotator logic:
+ * Finds the top 20 most active users (those who have leveled up or have the most earnings)
+ * and returns a random one to act as a guide for orphan users.
+ * This rewards high-performance users by giving them spillover/direct recruits.
+ */
+export const getRandomGuide = async (): Promise<string | null> => {
+    try {
+        const { data: topUsers, error } = await supabase
+            .from('profiles')
+            .select('id, email, username, level, matrix_progress, earnings')
+            .eq('status', 'ACTIVE')
+            .not('email', 'eq', 'josegmarin2012@gmail.com') // Don't give them to root again
+            .order('earnings', { ascending: false })
+            .order('matrix_progress', { ascending: false })
+            .limit(20);
+
+        if (error || !topUsers || topUsers.length === 0) {
+            return 'josegmarin2012@gmail.com'; // Fallback to root if no top users found
+        }
+
+        // Pick one at random from the top 20
+        const randomIndex = Math.floor(Math.random() * topUsers.length);
+        const selectedGuide = topUsers[randomIndex];
+
+        return selectedGuide.id || selectedGuide.email;
+    } catch (e) {
+        console.error("Error in equitable rotator:", e);
+        return 'josegmarin2012@gmail.com';
+    }
+};
+
 const getLevelNumeric = (level: string): number => {
     if (level === 'SEMILLA') return 1;
     if (level === 'CRECIMIENTO') return 2;
