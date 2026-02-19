@@ -1,0 +1,23 @@
+{
+    "name": "Vende Libros",
+    "short_name": "VendeLibros",
+    "description": "Sistema P2P de venta de libros con comisiones del 100%",
+    "start_url": "/#/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#10b981",
+    "icons": [
+        {
+            "src": "https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/video/logo_vl.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "https://nxkjmndvovsnnfaypdxr.supabase.co/storage/v1/object/public/video/logo_vl.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}
